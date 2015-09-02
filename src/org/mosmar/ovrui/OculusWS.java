@@ -1,11 +1,14 @@
 package org.mosmar.ovrui;
 
 import com.oculusvr.capi.Hmd;
+
 import static com.oculusvr.capi.OvrLibrary.ovrTrackingCaps.*;
 
 import com.oculusvr.capi.OvrQuaternionf;
 import com.oculusvr.capi.OvrVector3f;
 import com.oculusvr.capi.TrackingState;
+
+import java.awt.Frame;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.logging.Level;
@@ -13,8 +16,11 @@ import java.util.logging.Logger;
 
 import javajs.util.M3;
 import javajs.util.Quat;
+
 import org.jmol.viewer.TransformManager;
 import org.jmol.viewer.Viewer;
+
+import javax.swing.*;
 
 /**
  * WebSocket server that provides tracking info Dependencies are: JOVR, GSON and
@@ -28,6 +34,7 @@ public class OculusWS {
     public static final int MODE_MOUSE = 0;
     public static final int MODE_VR = 1;
 
+    private static JFrame mWindow = null;
     private static int mMode = MODE_MOUSE;
     private static boolean mIsEnabled = false;
 
@@ -198,12 +205,23 @@ public class OculusWS {
 
     //This methods is called whenever a new molecule is loaded
     public void resetViewer(){
-        /*
+
+        mWindow.toFront();
+        mWindow.setVisible(true);
+        mWindow.setState(Frame.NORMAL);
+        mWindow.repaint();
+      /*
          * ENables steroscopic mode and sets the size of atoms to be 15% of vander walls width
          */
         instance.mViewer.runScript("wireframe 0.15;spacefill reset;spacefill 15%;");
         instance.mViewer.runScript("stereo 0");
         activateMouseMode();
+        instance.mViewer.refresh(1, "");
+        
+    }
+
+    public static void setFrame(JFrame frame) {
+        mWindow = frame;
     }
 
     private static class SensorFetcher implements Runnable {

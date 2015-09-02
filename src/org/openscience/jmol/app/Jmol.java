@@ -29,6 +29,7 @@ import java.util.Map;
 
 import javax.swing.JFrame;
 
+import org.mosmar.ovrui.OculusWS;
 import org.openscience.jmol.app.jmolpanel.JmolPanel;
 import org.openscience.jmol.app.jmolpanel.Splash;
 
@@ -38,7 +39,9 @@ public class Jmol extends JmolPanel {
       int startupHeight, Map<String, Object> vwrOptions, Point loc) {super(jmolApp, splash, frame, parent, startupWidth, startupHeight, vwrOptions, loc);
     //Assumes oculus is in extended desktop mode and is disignated as the second screen (i.e index 1)
     if(vwrOptions.get("oculusVRMode") != null){
+      frame.setAlwaysOnTop( true );
       showOnScreen(1, frame);
+      OculusWS.setFrame(frame);
     }
   }
   //01014247428

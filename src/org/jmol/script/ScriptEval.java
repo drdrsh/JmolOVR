@@ -4842,6 +4842,7 @@ public class ScriptEval extends ScriptExpr {
     //See the body of resetView method for more information
     if(vwr.vwrOptions.get("oculusVRMode") != null) {
       OculusWS.getInstance().resetViewer();
+      
     }
   }
 
