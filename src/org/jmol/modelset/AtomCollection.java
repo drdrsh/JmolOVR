@@ -1236,12 +1236,14 @@ abstract public class AtomCollection {
         int targetValence = aaRet[0];
         int hybridization = aaRet[2];
         int nBonds = aaRet[3];
-
+        if (nBonds == 0 && atom.isHetero())
+          continue; // no adding to water
         hAtoms[i] = new P3[n];
         int hPt = 0;
         if (nBonds == 0) {
           switch (n) {
           case 4:
+            // methane
             z.set(0.635f, 0.635f, 0.635f);
             pt = P3.newP(z);
             pt.add(atom);
@@ -1250,6 +1252,7 @@ abstract public class AtomCollection {
               vConnect.addLast(atom);
             //$FALL-THROUGH$
           case 3:
+            // nitrogen
             z.set(-0.635f, -0.635f, 0.635f);
             pt = P3.newP(z);
             pt.add(atom);
@@ -1258,6 +1261,7 @@ abstract public class AtomCollection {
               vConnect.addLast(atom);
             //$FALL-THROUGH$
           case 2:
+            // oxygen
             z.set(-0.635f, 0.635f, -0.635f);
             pt = P3.newP(z);
             pt.add(atom);
@@ -1301,7 +1305,8 @@ abstract public class AtomCollection {
             // 2 bonds needed R2C or R-N or R2C=C or O
             //                    or RC=C or C=C
             boolean isEne = (hybridization == 2 || atomicNumber == 5 || nBonds == 1
-                && targetValence == 4 || atomicNumber == 7 && isAdjacentSp2(atom));
+                && targetValence == 4 
+                || atomicNumber == 7 && isAdjacentSp2(atom));
             getHybridizationAndAxes(i, atomicNumber, z, x, (isEne ? "sp2b"
                 : targetValence == 3 ? "sp3c" : "lpa"), false, true);
             pt = P3.newP(z);
@@ -1332,7 +1337,8 @@ abstract public class AtomCollection {
                 continue;
               }
               if (getHybridizationAndAxes(i, atomicNumber, z, x, (hybridization == 2 || atomicNumber == 5 
-                  || atomicNumber == 7 && isAdjacentSp2(atom) 
+                  || atomicNumber == 7 
+                  && (atom.group.getNitrogenAtom() == atom || isAdjacentSp2(atom))
                   ? "sp2c"
                   : "sp3d"), true, false) != null) {
                 pt = P3.newP(z);
@@ -2200,6 +2206,11 @@ abstract public class AtomCollection {
       return bs;
     case T.spec_seqcode:
       return BSUtil.copy(getSeqcodeBits(iSpec, true));
+    case T.inscode:
+      for (int i = ac; --i >= 0;)
+        if (at[i].group.getInsCode() == iSpec)
+          bs.set(i);
+      return bs;
     case T.symop:
       for (int i = ac; --i >= 0;)
         if (at[i].getSymOp() == iSpec)
@@ -2307,8 +2318,8 @@ abstract public class AtomCollection {
     case '?':
       for (int i = ac; --i >= 0;) {
         int atomSeqcode = at[i].group.seqcode;
-        if (!haveSeqNumber 
-            || seqNum == Group.getSeqNumberFor(atomSeqcode)
+        if ((!haveSeqNumber 
+            || seqNum == Group.getSeqNumberFor(atomSeqcode))
             && Group.getInsertionCodeFor(atomSeqcode) != 0) {
           bs.set(i);
           isEmpty = false;

@@ -134,6 +134,9 @@ public class NucleicMonomer extends PhosphorusMonomer {
    */
   private NucleicMonomer() {}
   
+  private boolean isPurine;
+  boolean isPyrimidine;
+  
   public static Monomer
     validateAndAllocate(Chain chain, String group3, int seqcode,
                         int firstAtomIndex, int lastAtomIndex,
@@ -146,6 +149,8 @@ public class NucleicMonomer extends PhosphorusMonomer {
     if (offsets == null)
       return null;
     
+    // Actually, O5T is never tested; it MUST have 05P. 
+    // O5P is part of the mask that got us here.
     if (!checkOptional(offsets, O5P, firstAtomIndex, 
         specialAtomIndexes[JC.ATOMID_O5T_TERMINUS]))
       return null;
@@ -169,15 +174,15 @@ public class NucleicMonomer extends PhosphorusMonomer {
   private NucleicMonomer set4(Chain chain, String group3, int seqcode,
                  int firstAtomIndex, int lastAtomIndex,
                  byte[] offsets) {
-    set3(chain, group3, seqcode,
+    set2(chain, group3, seqcode,
           firstAtomIndex, lastAtomIndex, offsets);
     if (!have(offsets, NP)) {
       offsets[0] = offsets[O5P];
       setLeadAtomIndex();
     }
-    this.hasRnaO2Prime = have(offsets, O2Pr);
-    this.isPyrimidine = have(offsets, O2);
-    this.isPurine = have(offsets, N7) && have(offsets, C8) && have(offsets, N9);
+    hasRnaO2Prime = have(offsets, O2Pr);
+    isPyrimidine = have(offsets, O2);
+    isPurine = have(offsets, N7) && have(offsets, C8) && have(offsets, N9);
     return this;
   }
 
@@ -194,10 +199,10 @@ public class NucleicMonomer extends PhosphorusMonomer {
     }
 
   @Override
-  public boolean isPurine() { return isPurine; }
+  public boolean isPurine() { return isPurine || !isPyrimidine && isPurineByID(); }
 
   @Override
-  public boolean isPyrimidine() { return isPyrimidine; }
+  public boolean isPyrimidine() { return isPyrimidine || !isPurine && isPyrimidineByID(); }
 
   public boolean isGuanine() { return have(offsets, N2); }
 
@@ -209,6 +214,10 @@ public class NucleicMonomer extends PhosphorusMonomer {
   }
 
     ////////////////////////////////////////////////////////////////
+
+  Atom getP() {
+    return getAtomFromOffsetIndex(P);
+  }
 
   Atom getC1P() {
     return getAtomFromOffsetIndex(C1P);
@@ -494,13 +503,14 @@ public boolean isCrossLinked(Group g) {
   }
  
   @Override
-  public boolean getCrossLinkLead(Lst<Integer> vReturn) {
+  public boolean getCrossLinkVector(Lst<Integer> vReturn, boolean crosslinkCovalent, boolean crosslinkHBond) {
+    if (!crosslinkHBond)
+      return false;
     Atom N = (isPurine ? getN1() : getN3());
     //System.out.println(N.getInfo());
     Bond[] bonds = N.bonds;
     if (bonds == null)
       return false;
-    boolean haveCrossLinks = false;
     for (int i = 0; i < bonds.length; i++) {
       //System.out.println(bonds[i].getOtherAtom(N).getInfo());
       if (bonds[i].isHydrogen()) {
@@ -512,12 +522,13 @@ public boolean isCrossLinked(Group g) {
         if ((isPurine ? m.getN3() : m.getN1()) == N2) {
           if (vReturn == null)
             return true;
+          vReturn.addLast(Integer.valueOf(N.i));
+          vReturn.addLast(Integer.valueOf(N2.i));
           vReturn.addLast(Integer.valueOf(m.leadAtomIndex));
-          haveCrossLinks = true;
         }
       }
     }
-    return haveCrossLinks;
+    return vReturn != null && vReturn.size() > 0;
   }
 
   public boolean getEdgePoints(P3[] pts) {
@@ -568,7 +579,7 @@ public boolean isCrossLinked(Group g) {
    */
   public Lst<BasePair> getBasePairs() {
     if (bioPolymer != null && !((NucleicPolymer) bioPolymer).isDssrSet)
-      bioPolymer.model.ms.vwr.getAnnotationParser().setAllDSSRParametersForModel(bioPolymer.model.ms.vwr, bioPolymer.model.modelIndex);    
+      bioPolymer.model.ms.vwr.getAnnotationParser(true).getBasePairs(bioPolymer.model.ms.vwr, bioPolymer.model.modelIndex);    
     return bps;
   }
 

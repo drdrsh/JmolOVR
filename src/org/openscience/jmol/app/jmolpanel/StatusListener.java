@@ -30,7 +30,6 @@ import org.jmol.api.JmolStatusListener;
 import org.jmol.api.JmolSyncInterface;
 import org.jmol.c.CBK;
 import org.jmol.dialog.Dialog;
-import javajs.awt.Dimension;
 import javajs.util.PT;
 
 import org.jmol.util.Logger;
@@ -121,6 +120,8 @@ class StatusListener implements JmolStatusListener, JmolSyncInterface, JSVInterf
   @SuppressWarnings("unchecked")
   @Override
   public void notifyCallback(CBK type, Object[] data) {
+    if (jmol.nboDialog != null)
+      jmol.nboDialog.notifyCallback(type, data);
     String strInfo = (data == null || data[1] == null ? null : data[1]
         .toString());
     Map<String, Object> info;
@@ -144,13 +145,13 @@ class StatusListener implements JmolStatusListener, JmolSyncInterface, JSVInterf
           menuName = "";
         display.status.setStatus(1, menuName);
         if (jmol.frame != null) {
-          Font f = jmol.frame.getFont();
-          if (f != null) {
-            int m = jmol.frame.getFontMetrics(f).stringWidth("M");
-            int n = jmol.frame.getWidth() / m;
+          //Font f = jmol.frame.getFont();
+          //if (f != null) {
+            //int m = jmol.frame.getFontMetrics(f).stringWidth("M");
+            //int n = jmol.frame.getWidth() / m;
             //if (n < menuName.length())
               //menuName = menuName.substring(0, n) + "...";
-          }
+          //}
           jmol.frame.setTitle(menuName);
         }
         //        if (jSpecViewFrame != null)
@@ -187,9 +188,9 @@ class StatusListener implements JmolStatusListener, JmolSyncInterface, JSVInterf
         String service = (String) info.get("service");
         if ("nbo".equals(service)) {
           if ("showPanel".equals(info.get("action")))
-            jmol.startNBO();
+          jmol.startNBO(null);
           else
-            jmol.getNBOService().processRequest(info);
+          jmol.getNBOService().processRequest(info, 0);
         }
       } catch (Exception e) {
         // ignore
@@ -210,6 +211,7 @@ class StatusListener implements JmolStatusListener, JmolSyncInterface, JSVInterf
         jmol.gaussianDialog.updateModel(-1);
       break;
     case SYNC:
+      //System.out.println("StatusListener sync; " + strInfo);
       String lc = (strInfo == null ? "" : strInfo.toLowerCase());
       if (lc.startsWith("jspecview")) {
         setJSpecView(strInfo.substring(9).trim(), false, false);
@@ -220,7 +222,10 @@ class StatusListener implements JmolStatusListener, JmolSyncInterface, JSVInterf
             .getPreference(data[2].toString()));
         return;
       }
-
+      if (strInfo != null && strInfo.toLowerCase().startsWith("nbo:")) {
+        jmol.startNBO(strInfo.substring(4).toLowerCase());
+        return;
+      }
       jmol.sendNioMessage(((Integer) data[3]).intValue(), strInfo);
       return;
     case DRAGDROP:

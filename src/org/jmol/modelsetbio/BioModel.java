@@ -49,6 +49,7 @@ import org.jmol.modelset.JmolBioModelSet;
 import org.jmol.modelset.LabelToken;
 import org.jmol.modelset.Model;
 import org.jmol.modelset.ModelSet;
+import org.jmol.modelset.Structure;
 import org.jmol.script.SV;
 import org.jmol.script.T;
 import org.jmol.util.BSUtil;
@@ -59,6 +60,7 @@ import org.jmol.util.Logger;
 import javajs.util.P3;
 
 
+import org.jmol.viewer.JC;
 import org.jmol.viewer.Viewer;
 
 
@@ -448,7 +450,6 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       ProteinStructure ps = lstStr.get(i);
       if (ps.type != type)
         continue;
-      bs.clearAll();
       // could be a subset of atoms, not just the ends
       Monomer m1 = ps.findMonomer(bsAtoms, true);
       Monomer m2 = ps.findMonomer(bsAtoms, false);
@@ -466,9 +467,11 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       case SHEET:
         n++;
         if (scriptMode) {
+          bs.clearAll();
+          ps.setAtomBits(bs);
           String stype = subtype.getBioStructureTypeName(false);
           cmd.append("  structure ").append(stype).append(" ")
-              .append(Escape.eBS(ps.getAtoms(bs))).append(comment)
+              .append(Escape.eBS(bs)).append(comment)
               .append(" & (" + res1 + " - " + res2 + ")").append(";\n");
         } else {
           String str;
@@ -539,11 +542,12 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
   }
 
   @Override
-  public BS getAllSequenceBits(String specInfo, BS bs) {
-    BS bsResult = new BS();
+  public BS getAllSequenceBits(String specInfo, BS bsAtoms, BS bsResult) {
     if (specInfo.length() > 0) {
-      if (bs == null)
-        bs = vwr.getAllAtoms();
+      if (bsAtoms == null)
+        bsAtoms = vwr.getAllAtoms();
+      if (specInfo.indexOf('|') < specInfo.lastIndexOf('|'))
+        return getAllUnitIds(specInfo, bsAtoms, bsResult);
       Model[] am = ms.am;
       for (int i = ms.mc; --i >= 0;)
         if (am[i].isBioModel) {
@@ -553,7 +557,7 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
             String sequence = m.bioPolymers[ip].getSequence();
             int j = -1;
             while ((j = sequence.indexOf(specInfo, ++j)) >= 0)
-              m.bioPolymers[ip].getPolymerSequenceAtoms(j, lenInfo, bs,
+              m.bioPolymers[ip].getPolymerSequenceAtoms(j, lenInfo, bsAtoms,
                   bsResult);
           }
         }
@@ -561,6 +565,201 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
     return bsResult;
   }
   
+  //UnitIDs are based on http://rna.bgsu.edu/main/rna-3d-hub-help/unit-ids/
+  //  
+  //  Unit Identifier Specification
+  //
+  //  We describe the type and case sensitivity of each field in the list below. In addition, we list which item in the mmCIF the data for each field comes from. We also show several examples of the IDs and their interpretation at the end.
+  //
+  //  Unit ids can also be used to identify atoms. When identifying entire residues, the atom field is left blank.
+  //
+  //      PDB ID Code
+  //          From PDBx/mmCIF item: _entry.id
+  //          4 characters, case-insensitive
+  //      Model Number
+  //          From PDBx/mmCIF item: _atom_site.pdbx_PDB_model_num
+  //          integer, range 1-99
+  //      Chain ID
+  //          From PDBx/mmCIF item: _atom_site.auth_asym_id
+  //          <= 4 character, case-sensitive
+  //      Residue/Nucleotide/Component Identifier
+  //          From PDBx/mmCIF item: _atom_site.label_comp_id
+  //          1-3 characters, case-insensitive
+  //      Residue/Nucleotide/Component Number
+  //          From PDBx/mmCIF item: _atom_site.auth_seq_id
+  //          integer, range: -999..9999 (there are negative residue numbers)
+  //      Atom Name (Optional, default: blank)
+  //          From PDBx/mmCIF item: _atom_site.label_atom_id
+  //          0-4 characters, case-insensitive
+  //          blank means all atoms
+  //      Alternate ID (Optional, default: blank)
+  //          From PDBx/mmCIF item: _atom_site.label_alt_id
+  //          Default value: blank
+  //          One of ['A', 'B', '0'], case-insensitive
+  //      Insertion Code (Optional, default: blank)
+  //          From PDBx/mmCIF item: _atom_site.pdbx_PDB_ins_code
+  //          1 character, case-insensitive
+  //      Symmetry Operation (Optional, default: 1_555)
+  //          As defined in PDBx/mmCIF item: _pdbx_struct_oper_list.name
+  //          5-6 characters, case-insensitive
+  //          For viral icosahedral structures, use “P_” + model number instead of symmetry operators. For example, 1A34|1|A|VAL|88|||P_1
+  //
+  //  Examples
+  //
+  //      Chain A in 1ABC = “1ABC|1|A”
+  //      Nucleotide U(10) chain B of 1ABC = “1ABC|1|B|U|10”
+  //      Nucleotide U(15A) chain B, default symmetry operator = “1ABC|1|B|U|15|||A”
+  //      Nucleotide C(25) chain D subject to symmetry operation 2_655 = “1ABC|1|D|C|25||||2_655”
+  //
+  //  Unit ids for entire residues can contain 4, 7, or 8 string separators (|).
+
+  private Map<String, BS>[] unitIdSets;
+  
+  @SuppressWarnings("unchecked")
+  private BS getAllUnitIds(String specInfo, BS bsSelected, BS bsResult) {
+    //  1ehz|1|A|U|7||||,1ehz|1|A|5MC|49|||| etc.
+    // (pdbid)|model|chain|RESNAME|resno|ATOMNAME|altcode|inscode|(symmetry)
+    //   0       1     2      3      4      5        6       7       8
+    //   -------required--------------   ----------optional-----------
+    // unitIdSets contains hashtables for each of these.
+    Map<String, BS>[] maps = unitIdSets;
+    if (maps == null) {
+      maps = unitIdSets = new Map[7];
+      for (int i = 0; i < 7; i++)
+        maps[i] = new Hashtable<String, BS>();
+      // set all model entries
+      for (int i = ms.mc; --i >= 0;) {
+        Model m = ms.am[i];
+        if (!m.isBioModel)
+          continue;
+        if (ms.isTrajectory(i))
+          m = ms.am[i = m.trajectoryBaseIndex];
+        String num = "|" + ms.getInfo(i, "modelNumber");
+        checkMap(maps[0], ms.getInfo(i, "modelName") + num, m.bsAtoms);
+        checkMap(maps[0], num, m.bsAtoms);
+      }
+    }
+    BS bsModelChain = null;
+    String lastModelChain = null;
+    BS bsTemp = new BS();
+    String[] units = PT.getTokens(PT.replaceAllCharacters(specInfo,
+        ", \t\n[]\"", " "));
+    int[] ptrs = new int[8];
+    for (int i = units.length; --i >= 0;) {
+      String unit = units[i] + "|";
+      if (unit.length() < 5)
+        continue;
+      int bsPtr = 0;
+      for (int j = 0, n = 0, pt = unit.lastIndexOf('|') + 1; j < pt && n < 8; j++) {
+        if (unit.charAt(j) == '|')
+          ptrs[n++] = j;
+        else
+          bsPtr |= 1 << n;
+      }
+      // |1|A||45 minimally: 10110
+      if ((bsPtr & 0x16) != 0x16)
+        continue;
+      bsTemp.clearAll();
+      bsTemp.or(bsSelected);
+      String mchain = unit.substring(0, ptrs[2]);
+      if (lastModelChain != null && lastModelChain.equals(mchain)) {
+        bsTemp.or(bsModelChain);
+      } else {
+        if (!addUnit(T.model, unit.substring(0, ptrs[1]).toUpperCase(), bsTemp,
+            maps[0]) 
+         || !addUnit(T.spec_chain, unit.substring(ptrs[1] + 1, ptrs[2]),
+            bsTemp, maps[1]))
+              continue;
+        // faster to cache this and reuse it
+        bsModelChain = BSUtil.copy(bsTemp);
+        lastModelChain = mchain;
+      }
+      boolean haveAtom = ((bsPtr & (1 << 5)) != 0);
+      boolean haveAlt =  ((bsPtr & (1 << 6)) != 0);
+      // we do not check field 3 (resname); it is redundant
+      // the altcode is considerd explicit if atomname is defined
+      // it is considered "This option or unspecified" when the atom name is not specified.
+      
+      if (
+          !addUnit(T.resno, unit.substring(ptrs[3] + 1, ptrs[4]), bsTemp, maps[2]) 
+       || !addUnit(T.inscode, ((bsPtr & (1 << 7)) == 0 ? "\0" : unit.substring(ptrs[6] + 1, ptrs[7])), bsTemp, maps[3])
+       || (haveAtom 
+           ? !addUnit(T.atomname, unit.substring(ptrs[4] + 1, ptrs[5]).toUpperCase(), bsTemp, maps[4])
+          || !addUnit(T.spec_alternate, unit.substring(ptrs[5] + 1, ptrs[6]), bsTemp, maps[5])
+         : haveAlt && !addUnit(T.configuration, unit.substring(ptrs[5] + 1, ptrs[6]), bsTemp, maps[6])
+          )
+       )
+            continue;
+      bsResult.or(bsTemp);
+    }
+    return bsResult;
+  }
+
+  /**
+   * Ensure that if two models have the same name or number, we 
+   * appropriately OR their bitsets.
+   *  
+   * @param map
+   * @param key
+   * @param bsAtoms
+   * @return current BS
+   */
+  private BS checkMap(Map<String, BS> map, String key, BS bsAtoms) {
+    BS bs = BSUtil.copy(bsAtoms);
+    BS bs0 = map.get(key);
+    if (bs0 == null)
+      map.put(key, bs0 = bs);
+    else
+      bs0.or(bs);
+    return bs0;
+  }
+
+  /**
+   * Repetitively AND unit components to get the final set of atoms 
+   * 
+   * @param tok
+   * @param key
+   * @param bsTemp
+   * @param map
+   * @return true if there are still atoms to consider
+   */
+  private boolean addUnit(int tok, String key, BS bsTemp, Map<String, BS> map) {
+    BS bs = map.get(key);
+    if (bs == null) {
+      Object o;
+      switch (tok) {
+//      case T.model:
+      default:
+        return false;
+      case T.spec_chain:
+        o = Integer.valueOf(vwr.getChainID(key, false));
+        break;
+      case T.resno:
+        o = Integer.valueOf(PT.parseInt(key));
+        break;
+      case T.inscode:
+        o = Integer.valueOf(key.charAt(0));
+        break;
+      case T.configuration:
+        // select all atoms with either no specified alt_id
+        // or the specified id.
+        // add in the atoms with no indication
+        bs = ms.getAtomBitsMDa(tok = T.spec_alternate, null, new BS());
+        // and then also those with the specified alt_id
+        //$FALL-THROUGH$
+      case T.atomname:
+        o = key;
+        break;
+      case T.spec_alternate:
+        o = (key.length() == 0 ? null : key);
+        break;
+      }
+      map.put(key, bs = ms.getAtomBitsMDa(tok, o, (bs == null ? new BS() : bs)));
+    }
+    bsTemp.and(bs);
+    return (bsTemp.nextSetBit(0) >= 0);
+  }
+
   private BS getAllBasePairBits(String specInfo) {
     BS bsA = null;
     BS bsB = null;
@@ -570,10 +769,10 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       calcAllRasmolHydrogenBonds(bsA, bsB, vHBonds, true, 1, false, null);
     } else {
       for (int i = 0; i < specInfo.length();) {
-        bsA = ms.getSequenceBits(specInfo.substring(i, ++i), null);
+        bsA = ms.getSequenceBits(specInfo.substring(i, ++i), null, new BS());
         if (bsA.nextSetBit(0) < 0)
           continue;
-        bsB = ms.getSequenceBits(specInfo.substring(i, ++i), null);
+        bsB = ms.getSequenceBits(specInfo.substring(i, ++i), null, new BS());
         if (bsB.nextSetBit(0) < 0)
           continue;
         calcAllRasmolHydrogenBonds(bsA, bsB, vHBonds, true, 1, false, null);
@@ -635,57 +834,64 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
             dsspIgnoreHydrogens, bsHBonds);
   }
 
-  private void getRasmolHydrogenBonds(BS bsA, BS bsB,
-                                      Lst<Bond> vHBonds, boolean nucleicOnly,
-                                      int nMax, boolean dsspIgnoreHydrogens,
-                                      BS bsHBonds) {    
-     boolean doAdd = (vHBonds == null);
-     if (doAdd)
-       vHBonds = new  Lst<Bond>();
-     if (nMax < 0)
-       nMax = Integer.MAX_VALUE;
-     boolean asDSSX = (bsB == null);
-     BioPolymer bp, bp1;
-     if (asDSSX && bioPolymerCount > 0) {
-       
-       calculateDssx(vHBonds, false, dsspIgnoreHydrogens, false);
-       
-     } else {
-       for (int i = bioPolymerCount; --i >= 0;) {
-         bp = bioPolymers[i];
-         int type = bp.getType();
-         if ((nucleicOnly || type != BioPolymer.TYPE_AMINO)
-             && type != BioPolymer.TYPE_NUCLEIC)
-           continue;
-         boolean isRNA = bp.isRna();
-         boolean isAmino = (type == BioPolymer.TYPE_AMINO);
-         if (isAmino)
-           bp.calcRasmolHydrogenBonds(null, bsA, bsB, vHBonds, nMax, null, true,
-               false);
-         for (int j = bioPolymerCount; --j >= 0;) {
-           if ((bp1 = bioPolymers[j]) != null && (isRNA || i != j)
-               && type == bp1.getType()) {
-             bp1.calcRasmolHydrogenBonds(bp, bsA, bsB, vHBonds, nMax, null,
-                 true, false);
-           }
-         }
-       }
-     }
-     
-     if (vHBonds.size() == 0 || !doAdd)
-       return;
-     hasRasmolHBonds = true;
-     for (int i = 0; i < vHBonds.size(); i++) {
-       HBond bond = (HBond) vHBonds.get(i);
-       Atom atom1 = bond.atom1;
-       Atom atom2 = bond.atom2;
-       if (atom1.isBonded(atom2))
-         continue;
-       int index = ms.addHBond(atom1, atom2, bond.order, bond.getEnergy());
-       if (bsHBonds != null)
-         bsHBonds.set(index);
-     }
-   }
+  private void getRasmolHydrogenBonds(BS bsA, BS bsB, Lst<Bond> vHBonds,
+                                      boolean nucleicOnly, int nMax,
+                                      boolean dsspIgnoreHydrogens, BS bsHBonds) {
+    boolean doAdd = (vHBonds == null);
+    if (doAdd)
+      vHBonds = new Lst<Bond>();
+    if (nMax < 0)
+      nMax = Integer.MAX_VALUE;
+    boolean asDSSX = (bsB == null);
+    BioPolymer bp, bp1;
+    if (asDSSX && bioPolymerCount > 0) {
+
+      calculateDssx(vHBonds, false, dsspIgnoreHydrogens, false);
+
+    } else {
+      for (int i = bioPolymerCount; --i >= 0;) {
+        bp = bioPolymers[i];
+        if (bp.monomerCount == 0)
+          continue;
+        int type = bp.getType();
+        boolean isRNA = false;
+        switch  (type) {
+        case BioPolymer.TYPE_AMINO:
+          if (nucleicOnly)
+            continue;
+          bp.calcRasmolHydrogenBonds(null, bsA, bsB, vHBonds, nMax, null, true,
+              false);
+          break;
+        case BioPolymer.TYPE_NUCLEIC:
+          isRNA = bp.monomers[0].isRna();
+          break;
+        default:
+          continue;
+        }
+        for (int j = bioPolymerCount; --j >= 0;) {
+          if ((bp1 = bioPolymers[j]) != null && (isRNA || i != j)
+              && type == bp1.getType()) {
+            bp1.calcRasmolHydrogenBonds(bp, bsA, bsB, vHBonds, nMax, null,
+                true, false);
+          }
+        }
+      }
+    }
+
+    if (vHBonds.size() == 0 || !doAdd)
+      return;
+    hasRasmolHBonds = true;
+    for (int i = 0; i < vHBonds.size(); i++) {
+      HBond bond = (HBond) vHBonds.get(i);
+      Atom atom1 = bond.atom1;
+      Atom atom2 = bond.atom2;
+      if (atom1.isBonded(atom2))
+        continue;
+      int index = ms.addHBond(atom1, atom2, bond.order, bond.getEnergy());
+      if (bsHBonds != null)
+        bsHBonds.set(index);
+    }
+  }
 
   @Override
   public void calculateStraightnessAll() {
@@ -703,9 +909,12 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       String jmolData, Properties properties, Map<String, Object> auxiliaryInfo) {
     vwr = modelSet.vwr;
     set(modelSet, modelIndex, trajectoryBaseIndex, jmolData, properties, auxiliaryInfo);
+    
     isBioModel = true;
     modelSet.bioModelset = this;
     clearBioPolymers();
+    modelSet.am[modelIndex] = this;
+    pdbID = (String) auxiliaryInfo.get("name");
   }
 
   private void clearBioPolymers() {
@@ -722,6 +931,7 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
   public void fixIndices(int modelIndex, int nAtomsDeleted, BS bsDeleted) {
     fixIndicesM(modelIndex, nAtomsDeleted, bsDeleted);
     recalculateLeadMidpointsAndWingVectors();
+    unitIdSets = null;
   }
 
   private void recalculateLeadMidpointsAndWingVectors() {
@@ -782,18 +992,18 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
         .calculateDssp(bioPolymers, bioPolymerCount, vHBonds, doReport,
             dsspIgnoreHydrogen, setStructure);
     if (haveNucl && auxiliaryInfo.containsKey("dssr") && vHBonds != null)
-      s += vwr.getAnnotationParser().getHBonds(ms, modelIndex, vHBonds, doReport);
+      s += vwr.getAnnotationParser(true).getHBonds(ms, modelIndex, vHBonds, doReport);
     return s;
   }
 
   /**
    * @param conformationIndex0
    * @param doSet 
-   * @param bsConformation
+   * @param bsAtoms
    * @param bsRet
    * @return true;
    */
-  public boolean getConformation(int conformationIndex0, boolean doSet, BS bsConformation, BS bsRet) {
+  public boolean getConformation(int conformationIndex0, boolean doSet, BS bsAtoms, BS bsRet) {
     if (conformationIndex0 >= 0) {
       int nAltLocs = altLocCount;
       if (nAltLocs > 0) {
@@ -802,7 +1012,7 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
         char ch = '\0';
         int conformationIndex = conformationIndex0;
         BS bsFound = new BS();
-        for (int i = bsConformation.nextSetBit(0); i >= 0; i = bsConformation.nextSetBit(i + 1)) {
+        for (int i = bsAtoms.nextSetBit(0); i >= 0; i = bsAtoms.nextSetBit(i + 1)) {
             Atom atom = atoms[i];
             char altloc = atom.altloc;
             // ignore (include) atoms that have no designation
@@ -821,15 +1031,15 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
               bsFound.set(altloc);
             }
             if (conformationIndex >= 0 || altloc != ch)
-              bsConformation.clear(i);
+              bsAtoms.clear(i);
           }
       }
     }
-    if (bsConformation.nextSetBit(0) >= 0) {
-      bsRet.or(bsConformation);      
+    if (bsAtoms.nextSetBit(0) >= 0) {
+      bsRet.or(bsAtoms);      
       if (doSet)
         for (int j = bioPolymerCount; --j >= 0;)
-          bioPolymers[j].setConformation(bsConformation);
+          bioPolymers[j].setConformation(bsAtoms);
     }
     return true;
   }
@@ -979,8 +1189,6 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       return getAnnotationBits("validation", T.validation, specInfo);
       //    case T.annotations:
       //      TODO -- generalize this
-    case T.dssr:
-      return getAnnotationBits("dssr", T.dssr, specInfo);
     case T.rna3d:
       return getAnnotationBits("rna3d", T.rna3d, specInfo);
     case T.basepair:
@@ -988,8 +1196,10 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
       bs = new BS();
       return (s.length() % 2 != 0 ? bs 
           : ms.getAtomBitsMDa(T.group, getAllBasePairBits(s), bs));
+    case T.dssr:
+      return getAnnotationBits("dssr", T.dssr, specInfo);
     case T.sequence:
-      return getAllSequenceBits(specInfo, null);
+      return getAllSequenceBits(specInfo, null, bs);
     }
   }
 
@@ -1001,49 +1211,66 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
     Atom[] at = ms.at;
     int ac = ms.ac;
     int i = 0;
+    Group g;
     switch (tokType) {
-    case T.carbohydrate:
-      for (i = ac; --i >= 0;)
-        if (at[i].group.isCarbohydrate())
-          bs.set(i);
-      break;
-    case T.dna:
-      for (i = ac; --i >= 0;)
-        if (at[i].isDna())
-          bs.set(i);
-      break;
     case T.helix: // WITHIN -- not ends
     case T.sheet: // WITHIN -- not ends
-      STR type = (tokType == T.helix ? STR.HELIX
-          : STR.SHEET);
-      for (i = ac; --i >= 0;)
-        if (at[i].group.isWithinStructure(type))
-          bs.set(i);
+      STR type = (tokType == T.helix ? STR.HELIX : STR.SHEET);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isWithinStructure(type))
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
+      break;
+    case T.carbohydrate:
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isCarbohydrate())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
+      break;
+    case T.dna:
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isDna())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
       break;
     case T.nucleic:
-      for (i = ac; --i >= 0;)
-        if (at[i].isNucleic())
-          bs.set(i);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isNucleic())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
       break;
     case T.protein:
-      for (i = ac; --i >= 0;)
-        if (at[i].isProtein())
-          bs.set(i);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isProtein())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+
+      }
       break;
     case T.purine:
-      for (i = ac; --i >= 0;)
-        if (at[i].isPurine())
-          bs.set(i);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isPurine())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
       break;
     case T.pyrimidine:
-      for (i = ac; --i >= 0;)
-        if (at[i].isPyrimidine())
-          bs.set(i);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isPyrimidine())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
       break;
     case T.rna:
-      for (i = ac; --i >= 0;)
-        if (at[i].isRna())
-          bs.set(i);
+      for (i = ac; --i >= 0;) {
+        if ((g = at[i].group).isRna())
+          g.setAtomBits(bs);
+        i = g.firstAtomIndex;
+      }
       break;
     }
     if (i < 0)
@@ -1056,45 +1283,23 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
 
     int i0 = bsInfo.nextSetBit(0);
     if (i0 < 0)
-      return bs;    
+      return bs;
     i = 0;
     switch (tokType) {
     case T.polymer:
       // within(polymer,...)
-      for (i = i0; i >= 0; i = bsInfo.nextSetBit(i+1)) {
-        if (bs.get(i))
-          continue;
+      for (i = i0; i >= 0; i = bsInfo.nextSetBit(i + 1)) {
         int iPolymer = at[i].group.getBioPolymerIndexInModel();
-        bs.set(i);
-        for (int j = i; --j >= 0;)
-          if (at[j].group.getBioPolymerIndexInModel() == iPolymer)
-            bs.set(j);
-          else
-            break;
-        for (; ++i < ac;)
-          if (at[i].group.getBioPolymerIndexInModel() == iPolymer)
-            bs.set(i);
-          else
-            break;
+        if (iPolymer >= 0)
+          ((Monomer) at[i].group).bioPolymer.setAtomBitsAndClear(bs, bsInfo);
       }
       break;
     case T.structure:
       // within(structure,...)
-      for (i = i0; i >= 0; i = bsInfo.nextSetBit(i+1)) {
-        if (bs.get(i))
-          continue;
-        Object structure = at[i].group.getStructure();
-        bs.set(i);
-        for (int j = i; --j >= 0;)
-          if (at[j].group.getStructure() == structure)
-            bs.set(j);
-          else
-            break;
-        for (; ++i < ac;)
-          if (at[i].group.getStructure() == structure)
-            bs.set(i);
-          else
-            break;
+      for (i = i0; i >= 0; i = bsInfo.nextSetBit(i + 1)) {
+        Structure structure = at[i].group.getStructure();
+        if (structure != null)
+          structure.setAtomBitsAndClear(bs, bsInfo);
       }
       break;
     }
@@ -1105,7 +1310,7 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
 
   private BS getAnnotationBits(String name, int tok, String specInfo) {
     BS bs = new BS();
-    JmolAnnotationParser pa = vwr.getAnnotationParser();
+    JmolAnnotationParser pa = vwr.getAnnotationParser(name.equals("dssr"));
     Object ann;
     for (int i = ms.mc; --i >= 0;)
       if ((ann = ms.getInfo(i, name)) != null)
@@ -1123,7 +1328,7 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
     Object annotv = cache.get(key);
     if (annotv == null && ann != null) {
       annotv = (ann instanceof SV || ann instanceof Hashtable ? ann
-              : vwr.evaluateExpressionAsVariable(ann));
+              : vwr.parseJSON((String) ann));
       cache.put(key, annotv);
     }
     return (annotv instanceof SV || annotv instanceof Hashtable ? annotv : null);
@@ -1175,6 +1380,49 @@ public final class BioModel extends Model implements JmolBioModelSet, JmolBioMod
     // old school; not supported for multi-character chains
     bs.and(ms.getChainBits(identifier.charAt(pt)));
     return bs;
+  }
+
+  
+
+  /**
+   * Get a unitID. Note that we MUST go through the | after InsCode, because
+   * if we do not do that we cannot match residues only using string matching.
+   * 
+   * @param atom
+   * @param flags 
+   * @return a unitID
+   */
+  public String getUnitID(Atom atom, int flags) {
+    
+    //  type: (ID)|model|chain|resid|resno|(atomName)|(altID)|(InsCode)|(symmetry)
+    //  res:  ID|model|chain|resid|resno|atomName|altID|InsCode|symmetry  
+    SB sb = new SB();
+    Group m = atom.group;
+    boolean noTrim = !JC.checkFlag(flags, JC.UNITID_TRIM); 
+    char ch = (JC.checkFlag(flags, JC.UNITID_INSCODE) ? m.getInsertionCode() : '\0');
+    boolean isAll = (ch != '\0');
+    if (JC.checkFlag(flags, JC.UNITID_MODEL) && (pdbID != null))
+      sb.append(pdbID);      
+    sb.append("|").appendO(ms.getInfo(modelIndex, "modelNumber"))
+      .append("|").append(vwr.getChainIDStr(m.chain.chainID))
+      .append("|").append(m.getGroup3())
+      .append("|").appendI(m.getResno());
+    if (JC.checkFlag(flags, JC.UNITID_ATOM)) {
+      sb.append("|").append(atom.getAtomName());
+      if (atom.altloc != '\0')
+        sb.append("|").appendC(atom.altloc);
+      else if (noTrim || isAll)
+        sb.append("|");
+    } else if (noTrim || isAll) {
+      sb.append("||");
+    }
+    if (isAll)
+      sb.append("|").appendC(ch);
+    else if (noTrim)
+      sb.append("|");
+    if (noTrim)
+      sb.append("|");
+    return sb.toString();
   }
 
 }

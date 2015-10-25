@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2014-02-06 11:06:51 -0600 (Thu, 06 Feb 2014) $
- * $Revision: 19272 $
+ * $Date: 2015-08-30 23:43:59 -0500 (Sun, 30 Aug 2015) $
+ * $Revision: 20747 $
  *
  * Copyright (C) 2005  The Jmol Development Team
  *
@@ -39,6 +39,10 @@ public class InvalidSmilesException extends Exception {
     lastError = null;
   }
   
+  @Override
+  public String getMessage() {
+    return lastError;
+  }
   /**
    * Constructs a <code>InvalidSmilesException</code> with a detail message.
    * 
@@ -46,7 +50,7 @@ public class InvalidSmilesException extends Exception {
    */
   public InvalidSmilesException(String message) {
     super(message);
-    lastError = message;
+    lastError = (message.startsWith("Jmol SMILES") ? message : "Jmol SMILES Exception: " +  message);
   }
 
 }

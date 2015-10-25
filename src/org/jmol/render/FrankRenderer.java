@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-07-01 00:15:11 -0500 (Wed, 01 Jul 2015) $
- * $Revision: 20606 $
+ * $Date: 2015-08-25 00:56:29 -0500 (Tue, 25 Aug 2015) $
+ * $Revision: 20734 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -43,8 +43,7 @@ public class FrankRenderer extends ShapeRenderer {
         : C.GRAY);
     if (isExport
         || !vwr.getShowFrank()
-        || !g3d.setC(C.getColixTranslucent3(colix,
-            g3d.haveTranslucentObjects(), 0.5f)))
+        || !g3d.setC(colix))
       return false;
     if (vwr.frankOn && !vwr.noFrankEcho)
       return vwr.noFrankEcho;

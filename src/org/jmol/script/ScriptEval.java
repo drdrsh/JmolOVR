@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-08 16:46:34 -0500 (Sat, 08 Aug 2015) $
- * $Revision: 20684 $
+ * $Date: 2015-10-11 10:41:18 -0500 (Sun, 11 Oct 2015) $
+ * $Revision: 20817 $
  *
  * Copyright (C) 2003-2006  Miguel, Jmol Development, www.jmol.org
  *
@@ -622,8 +622,9 @@ public class ScriptEval extends ScriptExpr {
                             boolean isTop) {
     if (sb == null)
       sb = new SB();
+    int pc = Math.min(sc.pc, sc.lineNumbers[sc.lineNumbers.length - 1]);
     sb.append(getErrorLineMessage(sc.functionName, sc.scriptFileName,
-        sc.lineNumbers[sc.pc], sc.pc, ScriptEval.statementAsString(vwr,
+        sc.lineNumbers[pc], pc, ScriptEval.statementAsString(vwr,
             sc.statement, (isTop ? sc.iToken : 9999), false)));
     if (sc.parentContext != null)
       getContextTrace(vwr, sc.parentContext, sb, false);
@@ -822,12 +823,12 @@ public class ScriptEval extends ScriptExpr {
         if (compileScript(null, "e_x_p_r_e_s_s_i_o_n = " + expr, false)) {
           if (compileOnly)
             return aatoken[0];
-          setStatement(aatoken[0]);
+          setStatement(aatoken[0], 1);
           return (asVariable ? parameterExpressionList(2, -1, false).get(0)
               : parameterExpressionString(2, 0));
         }
       } else if (expr instanceof T[]) {
-        BS bs = atomExpression((T[]) expr, 0, 0, true, false, true, false);
+        BS bs = atomExpression((T[]) expr, 0, 0, true, false, null, false);
         return (asVariable ? SV.newV(T.bitset, bs) : bs);
 
       }
@@ -855,7 +856,10 @@ public class ScriptEval extends ScriptExpr {
   }
 
   /**
-   * a general method to evaluate a string representing an atom set.
+   * A general method to evaluate a string representing an atom set.
+   * Excepts one atom expression or one per line as "OR".
+   * Excepts "()" as "none".
+   * 
    * 
    * @param atomExpression
    * @return is a bitset indicating the selected atoms
@@ -876,30 +880,14 @@ public class ScriptEval extends ScriptExpr {
       scr = PT.rep(scr, "()", "(none)");
       if (compileScript(null, scr, false)) {
         st = aatoken[0];
-        bs = atomExpression(st, 1, 0, false, false, true, true);
+        setStatement(st, 0);
+        bs = atomExpression(st, 1, 0, false, false, null, true);
       }
       popContext(false, false);
     } catch (Exception ex) {
       Logger.error("getAtomBitSet " + atomExpression + "\n" + ex);
     }
     return bs;
-  }
-
-  /**
-   * just provides a vector list of atoms in a string-based expression
-   * 
-   * @param ac
-   * @param atomExpression
-   * @return vector list of selected atoms
-   */
-  @Override
-  public Lst<Integer> getAtomBitSetVector(int ac, Object atomExpression) {
-    Lst<Integer> V = new Lst<Integer>();
-    BS bs = getAtomBitSet(atomExpression);
-    for (int i = bs.nextSetBit(0); i >= 0; i = bs.nextSetBit(i + 1)) {
-      V.addLast(Integer.valueOf(i));
-    }
-    return V;
   }
 
 
@@ -1092,7 +1080,7 @@ public class ScriptEval extends ScriptExpr {
       dispatchCommands(false, true, false);
       //JavaScript will not return here after DELAY or after what???
     }
-    SV v = (getReturn ? getContextVariableAsVariable("_retval") : null);
+    SV v = (getReturn ? getContextVariableAsVariable("_retval", false) : null);
     popContext(false, false);
     return v;
   }
@@ -1133,7 +1121,7 @@ public class ScriptEval extends ScriptExpr {
     if (pt < 0) {
       // if pt is a backward reference
       // this is a break within a try{...} block
-      getContextVariableAsVariable("_breakval").intValue = -pt;
+      getContextVariableAsVariable("_breakval", false).intValue = -pt;
       pcEnd = pc;
       return;
     }
@@ -1327,7 +1315,7 @@ public class ScriptEval extends ScriptExpr {
       return (BS) value;
     if (value instanceof T[]) { // j2s OK -- any Array here
       pushContext(null, "lookupValue");
-      BS bs = atomExpression((T[]) value, -2, 0, true, false, true, true);
+      BS bs = atomExpression((T[]) value, -2, 0, true, false, null, true);
       popContext(false, false);
       if (!isDynamic)
         vwr.definedAtomSets.put(setName, bs);
@@ -1560,12 +1548,15 @@ public class ScriptEval extends ScriptExpr {
         getScriptContext("setException"), null, true).toString();
     while (thisContext != null && !thisContext.isTryCatch)
       popContext(false, false);
-    sx.message += s;
-    sx.untranslated += s;
+    if (sx.message.indexOf(s) < 0) {
+      sx.message += s;
+      sx.untranslated += s;
+    }
     resumeViewer(isThrown ? "throw context" : "scriptException");
-    if (isThrown || thisContext != null || chk || msg.indexOf(JC.NOTE_SCRIPT_FILE) >= 0)
+    if (isThrown || thisContext != null || chk
+        || msg.indexOf(JC.NOTE_SCRIPT_FILE) >= 0)
       return;
-    Logger.error("eval ERROR: " + toString());
+    Logger.error("eval ERROR: " + s + toString());
     if (vwr.autoExit)
       vwr.exitJmol();
   }
@@ -1611,7 +1602,7 @@ public class ScriptEval extends ScriptExpr {
         }
       }
       if (iTok == i && token.tok != T.expressionEnd)
-        sb.append(">> ");
+        sb.append("<<<<");
       switch (token.tok) {
       case T.expressionBegin:
         if (useBraces)
@@ -1756,8 +1747,8 @@ public class ScriptEval extends ScriptExpr {
       if (token.value != null)
         sb.append(token.value.toString());
     }
-    if (iTok >= len - 1 && iTok != 9999)
-      sb.append(" <<");
+//    if (iTok >= len - 1 && iTok != 9999)
+//      sb.append(" <<");
     return sb.toString();
   }
 
@@ -2154,7 +2145,7 @@ public class ScriptEval extends ScriptExpr {
       }
       if (!chk && !checkContinue())
         break;
-      if (lineNumbers[pc] > lineEnd)
+      if (pc >= lineNumbers.length || lineNumbers[pc] > lineEnd)
         break;
       if (debugHigh) {
         long timeBegin = 0;
@@ -2184,7 +2175,7 @@ public class ScriptEval extends ScriptExpr {
         if (!"".equals(script))
           runScript(script);
       }
-      if (!setStatement(aatoken[pc])) {
+      if (!setStatement(aatoken[pc], 1)) {
         Logger.info(getCommand(pc, true, false)
             + " -- STATEMENT CONTAINING @{} SKIPPED");
         continue;
@@ -2533,7 +2524,7 @@ public class ScriptEval extends ScriptExpr {
     case T.ramachandran:
     case T.show:
     case T.write:      
-      getCmdExt().dispatch(theToken.tok, false, st);
+      getCmdExt().dispatch(tok, false, st);
       break;
     default:
       error(ERROR_unrecognizedCommand);
@@ -2839,7 +2830,7 @@ public class ScriptEval extends ScriptExpr {
     }
     switch (tok) {
     case T.center:
-      P3 center = centerParameter(index + 1);
+      P3 center = centerParameter(index + 1, null);
       setShapeProperty(JC.SHAPE_AXES, "origin", center);
       checkLast(iToken);
       return;
@@ -2995,22 +2986,22 @@ public class ScriptEval extends ScriptExpr {
     if (byCorner)
       index++;
     if (isCenterParameter(index)) {
-      expressionResult = null;
+      Object[] ret = new Object[1];
       int index0 = index;
-      P3 pt1 = centerParameter(index);
+      P3 pt1 = centerParameter(index, ret);
       index = iToken + 1;
       if (byCorner || isCenterParameter(index)) {
         // boundbox CORNERS {expressionOrPoint1} {expressionOrPoint2}
         // boundbox {expressionOrPoint1} {vector}
-        P3 pt2 = (byCorner ? centerParameter(index) : getPoint3f(index, true));
+        P3 pt2 = (byCorner ? centerParameter(index, ret) : getPoint3f(index, true));
         index = iToken + 1;
         if (!chk)
           vwr.ms.setBoundBox(pt1, pt2, byCorner, scale);
-      } else if (expressionResult != null && expressionResult instanceof BS) {
+      } else if (ret[0] != null && ret[0] instanceof BS) {
         // boundbox {expression}
         if (!chk)
-          vwr.calcBoundBoxDimensions((BS) expressionResult, scale);
-      } else if (expressionResult == null && tokAt(index0) == T.dollarsign) {
+          vwr.calcBoundBoxDimensions((BS) ret[0], scale);
+      } else if (ret[0] == null && tokAt(index0) == T.dollarsign) {
         if (chk)
           return;
         P3[] bbox = getObjectBoundingBox(objectNameParameter(++index0));
@@ -3046,7 +3037,7 @@ public class ScriptEval extends ScriptExpr {
       vwr.setNewRotationCenter(null);
       return;
     }
-    P3 center = centerParameter(i);
+    P3 center = centerParameter(i, null);
     if (center == null)
       invArg();
     if (!chk)
@@ -3267,7 +3258,7 @@ public class ScriptEval extends ScriptExpr {
       setObjectProperty();
       return;
     }
-    BS bs = (slen == 1 ? null : atomExpression(st, 1, 0, true, false, true,
+    BS bs = (slen == 1 ? null : atomExpression(st, 1, 0, true, false, null,
         false));
     if (chk)
       return;
@@ -3417,8 +3408,7 @@ public class ScriptEval extends ScriptExpr {
   private boolean cmdFor(int tok, boolean isForCheck) throws ScriptException {
     ContextToken cmdToken = (ContextToken) theToken;
     int pt = st[0].intValue;  
-    SV[] loopVars = cmdToken.loopVars;
-    pt = st[0].intValue;
+    SV[] forVars = cmdToken.forVars;
     int[] pts = new int[2];
     Object bsOrList = null;
     SV forVal = null;
@@ -3428,15 +3418,15 @@ public class ScriptEval extends ScriptExpr {
     boolean isMinusMinus = false;
     int j = 0;
     String key = null;
-    if (isForCheck && loopVars != null) {
+    if (isForCheck && forVars != null) {
       
       // for xx IN [...] or for xx FROM [...]
       
       tok = T.in;
       // i in x, already initialized
-      forVar = loopVars[0];
-      forVal = loopVars[1];
-      bsOrList = loopVars[1].value;
+      forVar = forVars[0];
+      forVal = forVars[1];
+      bsOrList = forVars[1].value;
       // nth time through
       j = ++forVal.intValue;
       if (forVal.tok == T.integer) {
@@ -3459,14 +3449,18 @@ public class ScriptEval extends ScriptExpr {
         isOK = (j >= 0);
       }
     } else {
-
+      // for (i = 1; i < 3; i = i + 1);
       // for (i = 1; i < 3; i = i + 1);
       // for (var i = 1; i < 3; i = i + 1);
       // for (;;;);
       // for (var x in {...}) { xxxxx }
       // for (var x in y) { xxxx }
+      boolean isLocal = false;
       for (int i = 1, nSkip = 0; i < slen && j < 2; i++) {
         switch (tok = tokAt(i)) {
+        case T.var:
+          isLocal = true;
+          break;
         case T.semicolon:
           if (nSkip > 0)
             nSkip--;
@@ -3529,8 +3523,11 @@ public class ScriptEval extends ScriptExpr {
           break;
         }
       }
-      if (!isForCheck)
-        pushContext(cmdToken, "FOR");        
+      if (!isForCheck) {
+        pushContext(cmdToken, "FOR");
+        thisContext.forVars = forVars;
+        forVars = null;
+      }
       if (key == null) {
         if (isForCheck) {
           j = (bsOrList == null ? pts[1] + 1 : 2);
@@ -3547,7 +3544,17 @@ public class ScriptEval extends ScriptExpr {
       if (isOK)
         if (tok == T.in) {
           // start of FOR (i in x) block or FOR (i from x)
-          forVar = getForVar(key);
+          forVar = getContextVariableAsVariable(key, isLocal);
+          if (forVar == null && !isLocal)
+            forVar = vwr.g.getAndSetNewVariable(key, false);
+          if (forVar == null || forVar.myName == null) {
+            if (key.startsWith("_"))
+              invArg();
+            if (isLocal)
+              contextVariables.put(key.toLowerCase(), forVar = SV.newI(0));
+            else
+              forVar = vwr.g.getAndSetNewVariable(key, true);
+          }
           if (inTok == T.integer) {
             // for (i from [0 31])
             forVar.tok = T.integer;
@@ -3559,26 +3566,28 @@ public class ScriptEval extends ScriptExpr {
             forVal = SV.getVariable(bsOrList);
             if (inTok == T.bitset) {
               j = ((BS) bsOrList).nextSetBit(0);
+              forVal.intValue = 0;
             } else {
               forVal.intValue = 1;
               forVar.setv(SV.selectItemVar(forVal));
               j = -1;
             }
           }
-          if (loopVars == null)
-            loopVars = cmdToken.loopVars = new SV[2];
-          loopVars[0] = forVar;
-          loopVars[1] = forVal;
+          if (forVars == null)
+            forVars = cmdToken.forVars = new SV[2];
+          forVars[0] = forVar;
+          forVars[1] = forVal;
         } else {
-          if (T.tokAttr(tokAt(j), T.misc)
-              || (forVal = getContextVariableAsVariable(key)) != null) {
+          int vtok = tokAt(j);
+          if (vtok != T.semicolon && (T.tokAttr(vtok, T.misc)
+              || (forVal = getContextVariableAsVariable(key, false)) != null)) {
             if (!isMinusMinus && getToken(++j).tok != T.opEQ)
               invArg();
             if (isMinusMinus)
               j -= 2;
             setVariable(++j, slen - 1, key, false);
           }
-          isOK = parameterExpressionBoolean(pts[0] + 1, pts[1]);
+          isOK = (pts[0] + 1 == pts[1] || parameterExpressionBoolean(pts[0] + 1, pts[1]));
         }
     }
     if (isOK && tok == T.in && j >= 0) {
@@ -3592,8 +3601,10 @@ public class ScriptEval extends ScriptExpr {
       }
     }
     pt++;
-    if (!isOK)
+    if (!isOK) {
+      cmdToken.forVars = thisContext.forVars;
       popContext(true, false);
+    }
     isForCheck = false;
     if (!isOK && !chk)
       pc = Math.abs(pt) - 1;
@@ -4042,7 +4053,7 @@ public class ScriptEval extends ScriptExpr {
   private void cmdHover() throws ScriptException {
     if (chk)
       return;
-    String strLabel = paramAsStr(1);
+    String strLabel = (slen == 1 ? "on" : paramAsStr(1));
     if (strLabel.equalsIgnoreCase("on"))
       strLabel = "%U";
     else if (strLabel.equalsIgnoreCase("off"))
@@ -4073,7 +4084,7 @@ public class ScriptEval extends ScriptExpr {
       bs = atomExpressionAt(iToken + 1);
       break;
     case T.point:
-      pt = centerParameter(2);
+      pt = centerParameter(2, null);
       break;
     case T.plane:
       plane = planeParameter(1);
@@ -4128,6 +4139,7 @@ public class ScriptEval extends ScriptExpr {
     boolean isConcat = false;
     boolean doOrient = false;
     boolean appendNew = vwr.getBoolean(T.appendnew);
+    String filename = null;
     BS bsModels;
     int i = (tokAt(0) == T.data ? 0 : 1);
     String filter = null;
@@ -4186,6 +4198,16 @@ public class ScriptEval extends ScriptExpr {
       // load HISTORY
       // load NBO
       switch (tok) {
+      case T.var:
+        String var = paramAsStr(++i);
+        filename = "@" + var;
+        Object o = getVarParameter(var, false);
+        if (o instanceof Map<?, ?>) {
+          checkLength(3);
+          loadPNGJVar(filename, o, htParams);
+          return;
+        }
+        break;
       case T.nbo:
       case T.history:
       case T.menu:
@@ -4340,7 +4362,7 @@ public class ScriptEval extends ScriptExpr {
       default:
         modelName = "fileset";
       }
-      if (filenames == null && getToken(i).tok != T.string)
+      if (filename == null && filenames == null && getToken(i).tok != T.string)
         error(ERROR_filenameExpected);
     }
     // long timeBegin = System.currentTimeMillis();
@@ -4351,9 +4373,16 @@ public class ScriptEval extends ScriptExpr {
     // LOAD ... "xxxx" AS "yyyy"
 
     int filePt = i;
+    int ptAs = i + 1;
     String localName = null;
-    if (tokAt(filePt + 1) == T.as) {
-      localName = stringParameter(i = i + 2);
+//    String annotation = null;
+//    if (tokAt(filePt + 1) == T.divide) {
+//      annotation = optParameterAsString(filePt + 2);
+//      ptAs += 2;
+//      i += 2;
+//    }
+    if (tokAt(ptAs) == T.as) {
+      localName = stringParameter(i = ptAs + 1);
       if (vwr.fm.getPathForAllFiles() != "") {
         // we use the LOCAL name when reading from a local path only (in the case of JMOL files)
         localName = null;
@@ -4361,7 +4390,6 @@ public class ScriptEval extends ScriptExpr {
       }
     }
 
-    String filename = null;
     String appendedData = null;
     String appendedKey = null;
 
@@ -4369,8 +4397,8 @@ public class ScriptEval extends ScriptExpr {
       // end-of-command options:
       // LOAD SMILES "xxxx" --> load "$xxxx"
 
-      if (i == 0 || filenames == null
-          && (filename = paramAsStr(filePt)).length() == 0)
+      if (filename == null && (i == 0 || filenames == null
+          && (filename = paramAsStr(filePt)).length() == 0))
         filename = getFullPathName();
       if (filename == null && filenames == null) {
         cmdZap(false);
@@ -4402,7 +4430,7 @@ public class ScriptEval extends ScriptExpr {
 
       // LOAD "" --> prevous file      
 
-      if ((filename = paramAsStr(filePt)).length() == 0
+      if (filename == null && (filename = paramAsStr(filePt)).length() == 0
           && (filename = getFullPathName()) == null) {
         // no previously loaded file
         cmdZap(false);
@@ -4501,12 +4529,18 @@ public class ScriptEval extends ScriptExpr {
       if (isInline) {
         htParams.put("fileData", filename);
       } else if (filename.startsWith("@") && filename.length() > 1) {
+        Object o = getVarParameter(filename.substring(1), false);
+        if (o instanceof Map<?, ?>) {
+          checkLength(i + 1);
+          loadPNGJVar(filename, o, htParams);
+          return;
+        }
         isVariable = true;
-        String s = getStringParameter(filename.substring(1), false);
-        htParams.put("fileData", s);
+        o = "" + o;
         loadScript = new SB().append("{\n    var ")
-            .append(filename.substring(1)).append(" = ").append(PT.esc(s))
-            .append(";\n    ").appendSB(loadScript);
+            .append(filename.substring(1)).append(" = ")
+            .append(PT.esc((String) o)).append(";\n    ").appendSB(loadScript);
+        htParams.put("fileData", o);
       } else if ((vwr.testAsync || vwr.isJS)
           && (isAsync || filename.startsWith("?"))) {
         localName = null;
@@ -4545,7 +4579,6 @@ public class ScriptEval extends ScriptExpr {
       if (isVariable || isInline) {
         loadScript.append(PT.esc(filename));
       } else if (!isData) {
-        // check for AS
         if (localName != null)
           localName = vwr.fm.getFilePath(localName, false, false);
         if (!filename.equals("string") && !filename.equals("string[]"))
@@ -4553,7 +4586,7 @@ public class ScriptEval extends ScriptExpr {
               (localName != null ? PT.esc(localName) : "$FILENAME$"));
       }
       if (!isConcat && (filename.startsWith("=") || filename.startsWith("*"))
-          && filename.indexOf("/") > 1) {
+          && filename.indexOf("/") > 0) {
 
         // EBI domains and validations, also rna3 and dssr
 
@@ -4565,7 +4598,15 @@ public class ScriptEval extends ScriptExpr {
 
         isConcat = true;
         int pt = filename.indexOf("/");
-        String id = filename.substring(1, pt);
+        String id;
+        if (pt == 1 && vwr.ms.getInfo(vwr.am.cmi, "isPDB") == Boolean.TRUE) {
+          //  load 
+          id = (String) vwr.ms.getInfo(vwr.am.cmi, "modelName");
+          filename = filename.substring(0, 1) + id + filename.substring(1);
+          pt = filename.indexOf("/");
+        } else {
+          id = filename.substring(1, pt);
+        }
         String ext = filename.substring(pt + 1);
         filename = filename.substring(0, pt);
         if ((pt = filename.indexOf(".")) >= 0)
@@ -4602,6 +4643,7 @@ public class ScriptEval extends ScriptExpr {
       vwr.setBooleanProperty("legacyJavaFloat", false);
     if (isMutate)
       htParams.put("isMutate", Boolean.TRUE);
+    htParams.put("eval", this);
     errMsg = vwr.loadModelFromFile(null, filename, filenames, null, isAppend,
         htParams, loadScript, sOptions, tokType, isConcat);
     if (timeMsg)
@@ -4650,6 +4692,19 @@ public class ScriptEval extends ScriptExpr {
     finalizeLoad(isAppend, appendNew, isConcat, doOrient, nFiles, ac0,
         modelCount0);
 
+  }
+
+  private void loadPNGJVar(String varName, Object o, Map<String, Object> htParams) throws ScriptException {
+    SV[] av = new SV[] {SV.newV(T.hash, o)};
+    getCmdExt().dispatch(T.binary, false, av);
+    htParams.put("imageData", av[0].value);
+    OC out = vwr.getOutputChannel(null, null);
+    htParams.put("outputChannel", out);
+    vwr.createZip("", "BINARY", htParams);
+    String modelName = "cache://VAR_" + varName;
+    vwr.cacheFileByName("cache://VAR_*",false);
+    vwr.cachePut(modelName, out.toByteArray());
+    cmdScript(0, modelName, null);
   }
 
   private String getLoadFilesList(int i, SB loadScript, SB sOptions,
@@ -4990,7 +5045,7 @@ public class ScriptEval extends ScriptExpr {
           // model 2.3 align {0 0 0}  // from state 
           if (i != 2)
             invArg();
-          frameAlign = centerParameter(3);
+          frameAlign = centerParameter(3, null);
           checkLength(i = iToken + 1);
           break;
         case T.all:
@@ -5248,10 +5303,11 @@ public class ScriptEval extends ScriptExpr {
       }
       if (tokAt(i) == T.bitset || tokAt(i) == T.expressionBegin) {
         isMolecular = true;
-        center = centerParameter(i);
-        if (!(expressionResult instanceof BS))
+        Object[] ret = new Object[1];
+        center = centerParameter(i, ret);
+        if (!(ret[0] instanceof BS))
           invArg();
-        bsCenter = (BS) expressionResult;
+        bsCenter = (BS) ret[0];
         q = (chk ? new Quat() : vwr.ms.getQuaternion(bsCenter.nextSetBit(0),
             vwr.getQuaternionFrame()));
       } else {
@@ -5373,9 +5429,10 @@ public class ScriptEval extends ScriptExpr {
     }
     if (bsCenter == null && i != slen) {
       // if any more, required (center)
-      center = centerParameter(i);
-      if (expressionResult instanceof BS)
-        bsCenter = (BS) expressionResult;
+      Object[] ret = new Object[1];
+      center = centerParameter(i, ret);
+      if (ret[0] instanceof BS)
+        bsCenter = (BS) ret[0];
       i = iToken + 1;
     }
     if (center != null) {
@@ -5408,7 +5465,7 @@ public class ScriptEval extends ScriptExpr {
       // (navCenter) xNav yNav navDepth
 
       if (i != slen) {
-        navCenter = centerParameter(i);
+        navCenter = centerParameter(i, null);
         i = iToken + 1;
         if (i != slen) {
           xNav = floatParameter(i++);
@@ -5567,7 +5624,7 @@ public class ScriptEval extends ScriptExpr {
   private void cmdReturn(SV tv) throws ScriptException {
     if (chk)
       return;
-    SV t = getContextVariableAsVariable("_retval");
+    SV t = getContextVariableAsVariable("_retval", false);
     if (t != null) {
       SV v = (tv != null || slen == 1 ? null : parameterExpressionToken(1));
       if (tv == null)
@@ -5695,7 +5752,7 @@ public class ScriptEval extends ScriptExpr {
           nPoints = 0;
         // {X, Y, Z}
         // $drawObject[n]
-        P3 pt1 = centerParameterForModel(i, vwr.am.cmi);
+        P3 pt1 = centerParameterForModel(i, vwr.am.cmi, null);
         if (!chk && tok == T.dollarsign && tokAt(i + 2) != T.leftsquare) {
           // rotation about an axis such as $line1
           isMolecular = true;
@@ -5800,7 +5857,7 @@ public class ScriptEval extends ScriptExpr {
         } else {
           pts = new P3[3];
           for (int j = 0; j < 3; j++) {
-            pts[j] = centerParameter(++i);
+            pts[j] = centerParameter(++i, null);
             i = iToken;
           }
         }
@@ -5815,7 +5872,7 @@ public class ScriptEval extends ScriptExpr {
       case T.axisangle:
         haveRotation = true;
         if (isPoint3f(++i)) {
-          rotAxis.setT(centerParameter(i));
+          rotAxis.setT(centerParameter(i, null));
           break;
         }
         P4 p4 = getPoint4f(i);
@@ -5845,7 +5902,7 @@ public class ScriptEval extends ScriptExpr {
       // 12.0 options
 
       case T.translate:
-        translation = V3.newV(centerParameter(++i));
+        translation = V3.newV(centerParameter(++i, null));
         isMolecular = isSelected = true;
         break;
       case T.helix:
@@ -6733,7 +6790,7 @@ public class ScriptEval extends ScriptExpr {
       } else {
         if (!isCenterParameter(2))
           invArg();
-        pt = centerParameter(2);
+        pt = centerParameter(2, null);
         checkLength(iToken + 1);
       }
       if (!chk)
@@ -6879,7 +6936,7 @@ public class ScriptEval extends ScriptExpr {
 
     // var xxxx = xxx can supercede set xxxx
 
-    boolean isContextVariable = (!justShow && !isJmolSet && getContextVariableAsVariable(key) != null);
+    boolean isContextVariable = (!justShow && !isJmolSet && getContextVariableAsVariable(key, false) != null);
 
     if (!justShow && !isContextVariable) {
 
@@ -7154,13 +7211,13 @@ public class ScriptEval extends ScriptExpr {
         return;
       case T.point:
         propertyName = "point";
-        propertyValue = (isCenterParameter(pt) ? centerParameter(pt) : null);
+        propertyValue = (isCenterParameter(pt) ? centerParameter(pt, null) : null);
         pt = iToken + 1;
         break;
       default:
         if (isCenterParameter(pt - 1)) {
           propertyName = "xyz";
-          propertyValue = centerParameter(pt - 1);
+          propertyValue = centerParameter(pt - 1, null);
           pt = iToken + 1;
           break;
         }
@@ -7191,7 +7248,8 @@ public class ScriptEval extends ScriptExpr {
         if (isPoint3f(2)) {
           // PyMOL offsets -- {x, y, z} in angstroms
           P3 pt = getPoint3f(2, false);
-          propertyValue = new float[] { 1, pt.x, pt.y, pt.z, 0, 0, 0 };
+          // minus 1 here means from Jmol, not from PyMOL
+          propertyValue = new float[] { -1, pt.x, pt.y, pt.z, 0, 0, 0 };
         } else if (isArrayParameter(2)) {
           // PyMOL offsets -- [1, scrx, scry, scrz, molx, moly, molz] in angstroms
           propertyValue = floatParameterSet(2, 7, 7);
@@ -7534,6 +7592,7 @@ public class ScriptEval extends ScriptExpr {
     BS bs = null;
     if (!chk)
       vwr.slm.setSelectionSubset(null);
+    // hover none --> subset exprbeg "off" exprend
     if (slen != 1 && (slen != 4 || !getToken(2).value.equals("off")))
       bs = atomExpressionAt(1);
     if (!chk)
@@ -7931,9 +7990,10 @@ public class ScriptEval extends ScriptExpr {
     BS bsCenter = null;
     if (isCenterParameter(i)) {
       ptCenter = i;
-      center = centerParameter(i);
-      if (expressionResult instanceof BS)
-        bsCenter = (BS) expressionResult;
+      Object[] ret = new Object[1];
+      center = centerParameter(i, ret);
+      if (ret[0] instanceof BS)
+        bsCenter = (BS) ret[0];
       i = iToken + 1;
     } else if (tokAt(i) == T.integer && getToken(i).intValue == 0) {
       bsCenter = vwr.getAtomBitSet("visible");
@@ -8474,19 +8534,6 @@ public class ScriptEval extends ScriptExpr {
         color2, nColors));
   }
 
-  private SV getForVar(String key) throws ScriptException {
-    SV t = getContextVariableAsVariable(key);
-    if (t == null) {
-      if (key.startsWith("_"))
-        invArg();
-      if (key.indexOf("/") >= 0)
-        contextVariables.put(key.toLowerCase(), t = SV.newI(0));
-      else
-        t = vwr.g.getOrSetNewVariable(key, true);
-    }
-    return t;
-  }
-
   public String getFullPathName() throws ScriptException {
     String filename = (!chk || isCmdLine_C_Option ? vwr
         .fm.getFullPathName(true) : "test.xyz");
@@ -8588,7 +8635,8 @@ public class ScriptEval extends ScriptExpr {
       float angstroms = floatParameterRange(index, 0, 2);
       return (Float.isNaN(angstroms) ? Integer.MAX_VALUE : (int) Math.floor(angstroms * 1000 * 2));
     }
-    errorStr(ERROR_booleanOrWhateverExpected, "\"DOTTED\"");
+    if (!chk)
+      errorStr(ERROR_booleanOrWhateverExpected, "\"DOTTED\"");
     return 0;
   }
 

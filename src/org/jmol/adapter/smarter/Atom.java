@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2014-09-22 00:10:40 -0500 (Mon, 22 Sep 2014) $
- * $Revision: 20014 $
+ * $Date: 2015-09-14 06:56:50 -0500 (Mon, 14 Sep 2015) $
+ * $Revision: 20772 $
  *
  * Copyright (C) 2003-2005  Miguel, Jmol Development, www.jmol.org
  *
@@ -104,30 +104,29 @@ public class Atom extends P3 implements Cloneable {
   }
 
   public String getElementSymbol() {
-    if (elementSymbol == null)
-      if (atomName != null) {
-        int len = atomName.length();
-        int ichFirst = 0;
-        char chFirst = 0;
-        while (ichFirst < len &&
-               !isValidSymChar1(chFirst = atomName.charAt(ichFirst)))
-          ++ichFirst;
-        switch(len - ichFirst) {
-        case 0:
-          break;
-        default:
-          char chSecond = atomName.charAt(ichFirst + 1);
-          if (isValidSymNoCase(chFirst, chSecond)) {
-            elementSymbol = "" + chFirst + chSecond;
-            break;
-          }
-          //$FALL-THROUGH$
-        case 1:
-          if (isValidSym1(chFirst))
-            elementSymbol = "" + chFirst;
+    if (elementSymbol == null && atomName != null) {
+      int len = atomName.length();
+      int ichFirst = 0;
+      char chFirst = 0;
+      while (ichFirst < len
+          && !isValidSymChar1(chFirst = atomName.charAt(ichFirst)))
+        ++ichFirst;
+      switch (len - ichFirst) {
+      case 0:
+        break;
+      default:
+        char chSecond = atomName.charAt(ichFirst + 1);
+        if (isValidSymNoCase(chFirst, chSecond)) {
+          elementSymbol = "" + chFirst + chSecond;
           break;
         }
+        //$FALL-THROUGH$
+      case 1:
+        if (isValidSym1(chFirst))
+          elementSymbol = "" + chFirst;
+        break;
       }
+    }
     return elementSymbol;
   }
 

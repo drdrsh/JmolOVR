@@ -219,9 +219,6 @@ public class CifReader extends AtomSetCollectionReader {
      * tokenizer.getTokenPeeked(); continue; }
      */
     if (key.indexOf("_") != 0) {
-      if (key.equals("DSSR:"))
-        processDSSR(this, htGroup1);
-      else
         Logger.warn("CIF ERROR ? should be an underscore: " + key);
       parser.getTokenPeeked();
     } else if (!getData()) {
@@ -316,9 +313,8 @@ public class CifReader extends AtomSetCollectionReader {
   private void readSingleAtom() {
     Atom atom = new Atom();
     atom.set(0, 0, 0);
-    String s = atom.atomName = parser.fullTrim(data);
-    atom.elementSymbol = s.length() == 1 ? s : s.substring(0, 1)
-        + s.substring(1, 2).toLowerCase();
+    atom.atomName = parser.fullTrim(data);
+    atom.getElementSymbol();
     asc.addAtom(atom);
   }
 
@@ -360,7 +356,10 @@ public class CifReader extends AtomSetCollectionReader {
 
   @Override
   protected void finalizeSubclassReader() throws Exception {
-    if (!isMMCIF || !finalizeSubclass())
+    // added check for final data_global
+    if (asc.iSet > 0 && asc.getAtomSetAtomCount(asc.iSet) == 0)
+      asc.atomSetCount--;
+    else if (!isMMCIF || !finalizeSubclass())
       applySymmetryAndSetTrajectory();
     int n = asc.atomSetCount;
     if (n > 1)
@@ -1246,13 +1245,8 @@ public class CifReader extends AtomSetCollectionReader {
             + " has invalid/unknown coordinates");
         continue;
       }
-      if (atom.elementSymbol == null && atom.atomName != null) {
-        String sym = atom.atomName;
-        int pt = 0;
-        while (pt < sym.length() && PT.isLetter(sym.charAt(pt)))
-          pt++;
-        atom.elementSymbol = (pt == 0 || pt > 2 ? "Xx" : sym.substring(0, pt));
-      }
+      if (atom.elementSymbol == null && atom.atomName != null)
+        atom.getElementSymbol();
       if (!filterCIFAtom(atom, assemblyId))
         continue;
       setAtomCoord(atom);

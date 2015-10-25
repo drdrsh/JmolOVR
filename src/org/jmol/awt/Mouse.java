@@ -103,7 +103,7 @@ class Mouse implements MouseWheelListener, MouseListener,
       mousePressed(time, x, y, modifiers, false);
       break;
     case Event.MOUSE_DRAG:
-      mouseDragged(time, x, y, modifiers);
+      mouseDragged(time, x, y);
       break;
     case Event.MOUSE_ENTER:
       mouseEntered(time, x, y);
@@ -158,16 +158,7 @@ class Mouse implements MouseWheelListener, MouseListener,
 
   @Override
   public void mouseDragged(MouseEvent e) {
-    int modifiers = e.getModifiers();
-    /****************************************************************
-     * Netscape 4.* Win32 has a problem with mouseDragged if you left-drag then
-     * none of the modifiers are selected we will try to fix that here
-     ****************************************************************/
-    if ((modifiers & Event.BUTTON_MASK) == 0)
-      modifiers |= Event.MOUSE_LEFT;
-
-    /****************************************************************/
-    mouseDragged(e.getWhen(), e.getX(), e.getY(), modifiers);
+    mouseDragged(e.getWhen(), e.getX(), e.getY());
   }
 
   @Override
@@ -344,11 +335,12 @@ class Mouse implements MouseWheelListener, MouseListener,
 
   private boolean isMouseDown; // Macintosh may not recognize CTRL-SHIFT-LEFT as drag, only move
   private boolean wheeling;
-
+  private int modifiersDown;
+  
   private void mouseMoved(long time, int x, int y, int modifiers) {
     clearKeyBuffer();
     if (isMouseDown)
-      manager.mouseAction(Event.DRAGGED, time, x, y, 0, applyLeftMouse(modifiers));
+      manager.mouseAction(Event.DRAGGED, time, x, y, 0, modifiersDown);
     else
       manager.mouseAction(Event.MOVED, time, x, y, 0, modifiers);
   }
@@ -372,22 +364,24 @@ class Mouse implements MouseWheelListener, MouseListener,
                     boolean isPopupTrigger) {
     clearKeyBuffer();
     isMouseDown = true;
+    modifiersDown = modifiers; // Mac does not transmit these during drag
     wheeling = false;
     manager.mouseAction(Event.PRESSED, time, x, y, 0, modifiers);
   }
 
   private void mouseReleased(long time, int x, int y, int modifiers) {
     isMouseDown = false;
+    modifiersDown = 0;
     wheeling = false;
     manager.mouseAction(Event.RELEASED, time, x, y, 0, modifiers);
   }
 
-  private void mouseDragged(long time, int x, int y, int modifiers) {
+  private void mouseDragged(long time, int x, int y) {
     if (wheeling)
       return;
-    if ((modifiers & Event.MAC_COMMAND) == Event.MAC_COMMAND)
-      modifiers = modifiers & ~Event.MOUSE_RIGHT | Event.CTRL_MASK;
-    manager.mouseAction(Event.DRAGGED, time, x, y, 0, modifiers);
+    if ((modifiersDown & Event.MAC_COMMAND) == Event.MAC_COMMAND)
+      modifiersDown = modifiersDown & ~Event.MOUSE_RIGHT | Event.CTRL_MASK; 
+    manager.mouseAction(Event.DRAGGED, time, x, y, 0, modifiersDown);
   }
 
   private static int applyLeftMouse(int modifiers) {

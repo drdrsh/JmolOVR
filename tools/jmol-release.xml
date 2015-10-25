@@ -17,8 +17,8 @@
   <property name="src.dir"         value="src" />
   <property name="temp.dir"        value="build/release" />
   <property name="web.dir"         value="/home/frs/project/j/jm/jmol" />
-  <property name="web.host"        value="frs.sourceforge.net" />
-  <property name="path.release"    value="Jmol-beta/Jmol 14.3" />
+  <property name="web.host"        value="frs.sourceforge.net" /> 
+  <property name="path.release"    value="Jmol-beta/Jmol 14.5" />
   <property name="prefix.release"  value="Jmol " />
 
 	<echo message="${dist.dir}" />
@@ -33,6 +33,16 @@
 	          />
   <echo message="version=${version}" />
 
+	<loadresource property="versionNoDate">
+	  <string value="${version}"/>
+	  <filterchain>
+	    <tokenfilter>
+	      <replaceregex pattern="([0-9.]+)_([0-9.]+)" replace="\1"/>
+	    </tokenfilter>
+	  </filterchain>
+	</loadresource>
+	<echo message="versionNoDate: ${versionNoDate}"/>
+	
   <!-- Copying files to website -->
   <target name="deploy" >
 
@@ -40,8 +50,8 @@
     <!-- Ask user for confirmation -->
 
     <input
-      message="Destination Path: (clear to exit)"
-      defaultvalue="${path.release}/${prefix.release}${version}"
+      message="Destination Path for ${version} (clear to exit)"
+      defaultvalue="${path.release}/${prefix.release}${versionNoDate}"
       addproperty="uploadPath"
     />
 
@@ -60,13 +70,13 @@
 
     <!-- Ask user for username and password -->
     <input
-      message="${uploadPath} - Please enter username:"
+      message="${uploadPath} for ${version} Please enter your username."
       addproperty="ssh.user"
     >
     	<!-- handler type="secure"/ -->
     </input>
     <input
-      message="${uploadPath} - Please enter password:"
+      message="Please enter your password."
       addproperty="ssh.password"
     />
 

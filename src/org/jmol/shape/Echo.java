@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-14 08:40:28 -0500 (Fri, 14 Aug 2015) $
- * $Revision: 20697 $
+ * $Date: 2015-10-19 01:22:30 -0500 (Mon, 19 Oct 2015) $
+ * $Revision: 20837 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -190,7 +190,7 @@ public class Echo extends TextShape {
       }
       return false;
     }
-    return false;
+    return getPropShape(property, data);
   }
 
   @Override

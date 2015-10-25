@@ -1,12 +1,19 @@
 package org.mosmar.ovrui;
 
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinDef.HWND;
 import com.oculusvr.capi.Hmd;
 
 import static com.oculusvr.capi.OvrLibrary.ovrTrackingCaps.*;
 
+import com.oculusvr.capi.EyeRenderDesc;
+import com.oculusvr.capi.FovPort;
+import com.oculusvr.capi.OvrLibrary;
 import com.oculusvr.capi.OvrQuaternionf;
 import com.oculusvr.capi.OvrVector3f;
+import com.oculusvr.capi.RenderAPIConfig;
 import com.oculusvr.capi.TrackingState;
+import com.oculusvr.capi.TrackingState.ByValue;
 
 import java.awt.Frame;
 import java.util.Timer;
@@ -61,6 +68,7 @@ public class OculusWS {
         }
     }
 
+    
     public static void centerOnAtom(int index){
         mSelectedAtom = index;
         /*If an atom is clicked and we are in VR mode
@@ -143,6 +151,7 @@ public class OculusWS {
     private boolean run = true;
     private TransformManager mTM;
     private Viewer mViewer;
+    protected Hmd mHMD;
 
     public M3 getOrientation(){
         return mOrientation;
@@ -165,29 +174,52 @@ public class OculusWS {
             public void run() {
               //Hmd stands for Head Mounted Display, That is our oculus :)
                 Hmd.initialize();
+                mHMD = Hmd.create(0);
 
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    throw new IllegalStateException(e);
-                }
+                EyeRenderDesc[] configureResult;
 
-                Hmd hmd = Hmd.create(0);
+                FovPort fovPorts[] = (FovPort[]) new FovPort().toArray(2);
 
-                if (hmd == null) {
+                fovPorts[0] = mHMD.DefaultEyeFov[0];
+                fovPorts[1] = mHMD.DefaultEyeFov[1];
+
+                RenderAPIConfig rc = new RenderAPIConfig();
+                rc.Header.API = OvrLibrary.ovrRenderAPIType.ovrRenderAPI_None;
+                rc.Header.BackBufferSize.w = 1920;
+                rc.Header.BackBufferSize.h = 1080;
+                rc.Header.Multisample = 1;
+
+                int distortionCaps;
+
+                distortionCaps = OvrLibrary.ovrDistortionCaps.ovrDistortionCap_Chromatic
+                            | OvrLibrary.ovrDistortionCaps.ovrDistortionCap_TimeWarp
+                            | OvrLibrary.ovrDistortionCaps.ovrDistortionCap_Vignette
+                            | OvrLibrary.ovrDistortionCaps.ovrDistortionCap_Overdrive;
+
+//                configureResult = mHMD.configureRendering(rc, distortionCaps, fovPorts);
+
+                HWND hwnd = User32.INSTANCE.FindWindow(null, mWindow.getTitle());
+                
+                byte result = OvrLibrary.INSTANCE.ovrHmd_AttachToWindow(mHMD, hwnd.getPointer(), null, null);
+                ByValue x = OvrLibrary.INSTANCE.ovrHmd_GetTrackingState(mHMD, 6.0);
+                mHMD.configureTracking(
+                    ovrTrackingCap_Orientation
+                    | ovrTrackingCap_MagYawCorrection
+                    | ovrTrackingCap_Position, 
+                0);
+
+                if (mHMD == null) {
                     org.jmol.util.Logger.error(
                             "Unable to initialize oculus, verify that the HMD is connected and the service is up");
                     throw new IllegalStateException("Unable to initialize HMD");
                 }
 
-                hmd.configureTracking(ovrTrackingCap_Orientation
-                        | ovrTrackingCap_MagYawCorrection
-                        | ovrTrackingCap_Position, 0);
 
+                
                 mIsEnabled = true;
                 
                 //The thread that gets data from the sensor
-                Thread t1 = new Thread(new SensorFetcher(hmd));
+                Thread t1 = new Thread(new SensorFetcher(mHMD));
                 t1.start();
 
                 try {
@@ -196,7 +228,7 @@ public class OculusWS {
                     Logger.getLogger(OculusWS.class.getName()).log(Level.SEVERE, null, ex);
                 }
 
-                hmd.destroy();
+                mHMD.destroy();
                 Hmd.shutdown();
             }
         }).start();
@@ -210,6 +242,8 @@ public class OculusWS {
         mWindow.setVisible(true);
         mWindow.setState(Frame.NORMAL);
         mWindow.repaint();
+        
+
       /*
          * ENables steroscopic mode and sets the size of atoms to be 15% of vander walls width
          */
@@ -217,7 +251,11 @@ public class OculusWS {
         instance.mViewer.runScript("stereo 0");
         activateMouseMode();
         instance.mViewer.refresh(1, "");
-        
+
+        HWND hwnd = User32.INSTANCE.FindWindow(null, mWindow.getTitle());
+        byte result = OvrLibrary.INSTANCE.ovrHmd_AttachToWindow(mHMD, hwnd.getPointer(), null, null);
+        OvrLibrary.INSTANCE.ovrHmd_GetTrackingState(mHMD, 0.0);
+
     }
 
     public static void setFrame(JFrame frame) {
@@ -237,7 +275,10 @@ public class OculusWS {
             while (instance.run) {
                 //Ignore VR input if mouse mode is enabled
                 //TODO: Stop the thread instead
-                if(mMode == MODE_MOUSE){
+                OvrLibrary.INSTANCE.ovrHmd_GetTrackingState(hmd, Hmd.getTimeInSeconds());
+
+              TrackingState sensorState = hmd.getSensorState(Hmd.getTimeInSeconds());
+              if(mMode == MODE_MOUSE){
                     try {
                         Thread.sleep(1);
                     } catch (InterruptedException ex) {
@@ -245,8 +286,7 @@ public class OculusWS {
                     }
                     continue;
                 }
-
-                TrackingState sensorState = hmd.getSensorState(Hmd.getTimeInSeconds());
+                
 
                 OvrVector3f pos = sensorState.HeadPose.Pose.Position;
                 OvrQuaternionf quat = sensorState.HeadPose.Pose.Orientation;

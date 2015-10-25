@@ -174,17 +174,15 @@ public class MMCifReader extends CifReader {
     if (!isCourseGrained && asc.ac == nAtoms) {
       asc.removeCurrentAtomSet();
     } else {
-      if ((validation != null || addedData != null) && !isCourseGrained) {
+      if ((dssr != null || validation != null || addedData != null) && !isCourseGrained) {
         MMCifValidationParser vs = ((MMCifValidationParser) getInterface("org.jmol.adapter.readers.cif.MMCifValidationParser"))
             .set(this);
         String note = null;
         if (addedData == null) {
-          note = vs.finalizeValidations(modelMap);
+          if (validation != null || dssr != null)
+            note = vs.finalizeValidations(vwr, modelMap);
         } else if (addedDataKey.equals("_rna3d")) {
           note = vs.finalizeRna3d(modelMap);
-        } else {
-          reader = Rdr.getBR(addedData);
-          processDSSR(this, htGroup1);
         }
         if (note != null)
           appendLoadNote(note);
@@ -1002,7 +1000,7 @@ public class MMCifReader extends CifReader {
       String key2 = vwr.getChainID(getField(STRUCT_CONN_ASYM2), true) + getField(STRUCT_CONN_COMP2)
           + parseFloatStr(getField(STRUCT_CONN_SEQ2))
           + getField(STRUCT_CONN_ATOM2) + getField(STRUCT_CONN_ALT2);
-      System.out.println(type + "\t" + key1 + " " + key2);
+      //System.out.println(type + "\t" + key1 + " " + key2);
       int order = getBondOrder(getField(STRUCT_CONN_ORDER));
       if (structConnMap == null)
         structConnMap = new Lst<Object[]>();

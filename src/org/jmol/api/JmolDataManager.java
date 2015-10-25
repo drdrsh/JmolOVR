@@ -32,12 +32,14 @@ public interface JmolDataManager {
 
   Object getData(String label, BS bsSelected, int dataType);
 
-  float getDataFloatAt(String label, int atomIndex);
+  //float getDataFloatAt(String label, int atomIndex);
 
   String getDefaultVdwNameOrData(VDW type, BS bs);
 
   void setData(String type, Object[] data, int dataType, int ac,
                int matchField, int matchFieldColumnCount, int dataField,
                int dataFieldColumnCount);
+
+  Object[] createFileData(String strModel);
 
 }

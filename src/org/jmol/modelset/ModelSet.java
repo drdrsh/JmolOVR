@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-07-29 06:14:56 -0500 (Wed, 29 Jul 2015) $
- * $Revision: 20664 $
+ * $Date: 2015-10-01 08:11:38 -0500 (Thu, 01 Oct 2015) $
+ * $Revision: 20804 $
 
  *
  * Copyright (C) 2003-2005  The Jmol Development Team
@@ -2306,7 +2306,7 @@ public class ModelSet extends BondCollection {
     AtomIndexIterator iter = getSelectedAtomIterator(null, false, false, false,
         false);
     for (int iModel = mc; --iModel >= 0;) {
-      if (!bsCheck.get(iModel))
+      if (!bsCheck.get(iModel) || am[iModel].bsAtoms.isEmpty())
         continue;
       setIteratorForAtom(iter, -1, am[iModel].firstAtomIndex, -1, null);
       iter.setCenter(coord, distance);
@@ -2404,6 +2404,7 @@ public class ModelSet extends BondCollection {
     Atom atomB = null;
     char altloc = '\0';
     short newOrder = (short) (order | Edge.BOND_NEW);
+    boolean isAromatic = ((order & Edge.BOND_AROMATIC_MASK) != 0);
     try {
       for (int i = bsA.nextSetBit(0); i >= 0; i = bsA.nextSetBit(i + 1)) {
         if (isBonds) {
@@ -2434,7 +2435,9 @@ public class ModelSet extends BondCollection {
           if ((bondAB == null ? idOrModifyOnly : createOnly)
               || checkDistance
               && !isInRange(atomA, atomB, minD, maxD, minDIsFrac, maxDIsFrac,
-                  isFractional))
+                  isFractional)
+              || isAromatic && !allowAromaticBond(bondAB)
+              )
             continue;
           if (bondAB == null) {
             bsBonds.set(bondAtoms(atomA, atomB, order, mad, bsBonds, energy,
@@ -3047,6 +3050,7 @@ public class ModelSet extends BondCollection {
       am[i].dssrCache = null;
     }
     deleteBonds(bsBonds, false);
+    validateBspf(false);
   }
 
   // atom addition //
@@ -3836,32 +3840,35 @@ public class ModelSet extends BondCollection {
     return v.toArray(new Quat[v.size()]);
   }
 
-  public BS getConformation(int modelIndex, int conformationIndex, boolean doSet, BS bsSelected) {
+  public BS getConformation(int modelIndex, int conformationIndex,
+                            boolean doSet, BS bsSelected) {
     BS bs = new BS();
-    BS bsAtoms;
-    for (int i = mc; --i >= 0;)
-      if (i == modelIndex || modelIndex < 0) {
-        Model m = am[i];
-        if (conformationIndex >= m.altLocCount)
+    if (conformationIndex >= 0)
+      for (int i = mc; --i >= 0;) {
+        if (i != modelIndex && modelIndex >= 0)
           continue;
-        bsAtoms = vwr.getModelUndeletedAtomsBitSet(modelIndex);
+        Model m = am[i];
+        BS bsAtoms = vwr.getModelUndeletedAtomsBitSet(modelIndex);
         if (bsSelected != null)
           bsAtoms.and(bsSelected);
         if (bsAtoms.nextSetBit(0) < 0)
           continue;
+        if (conformationIndex >= m.altLocCount) {
+          if (conformationIndex == 0)
+            bs.or(bsAtoms);
+          continue;
+        }
         if (am[i].isBioModel
             && ((BioModel) am[i]).getConformation(conformationIndex, doSet,
                 bsAtoms, bs))
           continue;
-        if (conformationIndex >= 0) {
-          int nAltLocs = getAltLocCountInModel(i);
-          String altLocs = getAltLocListInModel(i);
-          BS bsTemp = new BS();
-          for (int c = nAltLocs; --c >= 0;)
-            if (c != conformationIndex)
-              bsAtoms.andNot(getAtomBitsMDa(T.spec_alternate,
-                  altLocs.substring(c, c + 1), bsTemp));
-        }
+        int nAltLocs = getAltLocCountInModel(i);
+        String altLocs = getAltLocListInModel(i);
+        BS bsTemp = new BS();
+        for (int c = nAltLocs; --c >= 0;)
+          if (c != conformationIndex)
+            bsAtoms.andNot(getAtomBitsMDa(T.spec_alternate,
+                altLocs.substring(c, c + 1), bsTemp));
         if (bsAtoms.nextSetBit(0) >= 0)
           bs.or(bsAtoms);
       }
@@ -3870,9 +3877,9 @@ public class ModelSet extends BondCollection {
 
   ///// bio-only methods /////
 
-  public BS getSequenceBits(String specInfo, BS bs) {
-    return (haveBioModels ? bioModelset.getAllSequenceBits(specInfo, bs)
-        : new BS());
+  public BS getSequenceBits(String specInfo, BS bsAtoms, BS bsResult) {
+    return (haveBioModels ? bioModelset.getAllSequenceBits(specInfo, bsAtoms, bsResult)
+        : bsResult);
   }
 
   public int getBioPolymerCountInModel(int modelIndex) {
@@ -4024,7 +4031,7 @@ public class ModelSet extends BondCollection {
     if (asMap) {
       map = new Hashtable<String, Object>();
       lstI = new Lst<Integer>();
-      map.put("atomIndex", lstI);
+      map.put("atoms", lstI);
       map.put("points", lst);
     }
     int iAtom = (bs == null ? -1 : bs.nextSetBit(0));

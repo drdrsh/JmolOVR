@@ -422,7 +422,7 @@ abstract class ScriptTokenParser {
   
   boolean haveString;
   
-  private boolean clauseOr(boolean allowComma) {
+  private boolean clauseOr(boolean allowCommaAsOr) {
     haveString = false;
     if (!clauseAnd())
       return false;
@@ -433,14 +433,14 @@ abstract class ScriptTokenParser {
     //OrNot: First OR, but if that makes no change, then NOT (special toggle)
     int tok;
     while ((tok = tokPeek())== T.opOr || tok == T.opXor
-        || tok==T.opToggle|| allowComma && tok == T.comma) {
+        || tok==T.opToggle|| allowCommaAsOr && tok == T.comma) {
       if (tok == T.comma && !haveString)
         addSubstituteTokenIf(T.comma, T.tokenOr);
       else
         addNextToken();
       if (!clauseAnd())
         return false;
-      if (allowComma && (lastToken.tok == T.rightbrace || lastToken.tok == T.bitset))
+      if (allowCommaAsOr && (lastToken.tok == T.rightbrace || lastToken.tok == T.bitset))
         haveString = true;
     }
     return true;
@@ -596,7 +596,7 @@ abstract class ScriptTokenParser {
           if (isExpressionNext()) {
             addTokenToPostfixToken(T.o(T.expressionBegin,
                 "implicitExpressionBegin"));
-            if (!clauseOr(true))
+            if (!clauseOr(false)) // changed to FALSE 10/20 because  @({"center":{0.0 0.0 0.0}, "xxx"...}} failed
               return false;
             if (lastToken != T.tokenCoordinateEnd) {
               addTokenToPostfixToken(T.tokenExpressionEnd);
@@ -628,8 +628,9 @@ abstract class ScriptTokenParser {
     } else if (isImplicitExpression) {
       addTokenToPostfixToken(T.tokenExpressionEnd);
       tokenNext();
-    } else if (isEmbeddedExpression && !isHash) {
-      tokenNext();
+    } else if (isEmbeddedExpression) {
+      if (!isHash)
+        tokenNext();
     } else {
       addNextToken();
     }
@@ -775,12 +776,9 @@ abstract class ScriptTokenParser {
       case T.vanderwaals:
         key = (String) theValue;
         break;
-      case T.identifier:
+      default:
         key = ((String) theValue).toLowerCase();
         break;
-      default:
-        return errorIntStr2(ERROR_unrecognizedParameter, "WITHIN", ": "
-            + theToken.value);
       }
     if (key == null)
       addTokenToPostfix(T.decimal, Float.valueOf(distance));
@@ -1342,6 +1340,7 @@ abstract class ScriptTokenParser {
     case T.string:
     case T.integer:
     case T.identifier:
+    case T.opIf:
     case T.x:
     case T.y:
     case T.z:
@@ -1376,9 +1375,8 @@ abstract class ScriptTokenParser {
 
 
   /**
-   * process /1   /1.1   /*
+   * process /1   /1.1   / *  or just /
    * 
-   * no longer accept just "/" here for implicit /1 
    * 
    * @return true if no error
    */
@@ -1393,11 +1391,12 @@ abstract class ScriptTokenParser {
           .valueOf(getToken().intValue)));
     case T.decimal:
       return generateResidueSpecCode(T.tv(T.spec_model, fixModelSpec(getToken()), theValue));
-//    case T.comma:
-//    case T.rightbrace:
-//    case T.nada:
-//      return generateResidueSpecCode(T.o(T.spec_model, Integer
-//          .valueOf(1)));
+    case T.comma:
+    case T.rightbrace:
+    case T.nada:
+      // these are necessary to allow for {1 1 1/} or {1/,1/,1} in fractional coordinates  
+      return generateResidueSpecCode(T.o(T.spec_model, Integer
+          .valueOf(1)));
     }
     return error(ERROR_invalidModelSpecification);
   }

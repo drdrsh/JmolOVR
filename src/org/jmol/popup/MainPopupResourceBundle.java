@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-03-20 21:23:40 -0500 (Fri, 20 Mar 2015) $
- * $Revision: 20398 $
+ * $Date: 2015-09-18 03:33:04 -0500 (Fri, 18 Sep 2015) $
+ * $Revision: 20777 $
  *
  * Copyright (C) 2000-2005  The Jmol Development Team
  *
@@ -94,7 +94,7 @@ public class MainPopupResourceBundle extends PopupResource {
 
       {   "PDBnucleicMenu",
           "PDBnucleicResiduesComputedMenu - allNucleic nucleicBackbone nucleicBases - DNA RNA - "
-              + "atPairs auPairs gcPairs" },
+              + "atPairs auPairs gcPairs - aaStructureMenu" },
               
       {   "PDBheteroMenu",
           "PDBheteroComputedMenu - allHetero Solvent Water - "
@@ -344,6 +344,7 @@ public class MainPopupResourceBundle extends PopupResource {
         "atPairs", GT._("AT pairs"),
         "gcPairs", GT._("GC pairs"),
         "auPairs", GT._("AU pairs"),
+        "aaStructureMenu", GT._("Secondary Structure"),
         "PDBheteroMenu", GT._("Hetero"),
         "allHetero", GT._("All PDB \"HETATM\""),
         "Solvent", GT._("All Solvent"),

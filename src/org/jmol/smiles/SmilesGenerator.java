@@ -24,24 +24,23 @@
 
 package org.jmol.smiles;
 
-import java.util.Iterator;
 import java.util.Hashtable;
+import java.util.Iterator;
 import java.util.Map;
 
 import javajs.util.Lst;
-import javajs.util.SB;
 import javajs.util.P3;
+import javajs.util.SB;
 
 import org.jmol.java.BS;
-
-
-import org.jmol.util.BSUtil;
-import org.jmol.util.Elements;
-import org.jmol.util.Edge;
-import org.jmol.util.JmolMolecule;
 import org.jmol.util.BNode;
-import org.jmol.util.Node;
+import org.jmol.util.BSUtil;
+import org.jmol.util.Edge;
+import org.jmol.util.Elements;
+import org.jmol.util.JmolMolecule;
 import org.jmol.util.Logger;
+import org.jmol.util.Node;
+import org.jmol.viewer.JC;
 
 /**
  * Double bond, allene, square planar and tetrahedral stereochemistry only
@@ -69,7 +68,7 @@ public class SmilesGenerator {
   // data
 
   private VTemp vTemp = new VTemp();
-  private int nPairs;
+  private int nPairs, nPairsMax;
   private BS bsBondsUp = new BS();
   private BS bsBondsDn = new BS();
   private BS bsToDo;
@@ -80,48 +79,69 @@ public class SmilesGenerator {
 
   private Map<String, Object[]> htRingsSequence = new Hashtable<String, Object[]>();
   private Map<String, Object[]> htRings = new Hashtable<String, Object[]>();
+  private BS bsRingKeys = new BS();
   private BS bsIncludingH;
   private boolean topologyOnly;
   boolean getAromatic = true;
+  private boolean addAtomComment;
+  private boolean noBioComment;
+  private boolean noStereo;
+  public P3 stereoReference;
+  private SmilesStereo smilesStereo;
+  private boolean isPolyhedral;
 
   // generation of SMILES strings
 
-  String getSmiles(Node[] atoms, int ac, BS bsSelected, boolean explicitH, boolean topologyOnly, boolean getAromatic)
+  String getSmiles(Node[] atoms, int ac, BS bsSelected, String comment, int flags)
       throws InvalidSmilesException {
-    int i = bsSelected.nextSetBit(0);
-    if (i < 0)
+    int ipt = bsSelected.nextSetBit(0);
+    if (ipt < 0)
       return "";
     this.atoms = atoms;
     this.ac = ac;
-    this.bsSelected = bsSelected = BSUtil.copy(bsSelected);
-    this.explicitH = explicitH;
-    this.topologyOnly = topologyOnly;
-    this.getAromatic = getAromatic;
-    return getSmilesComponent(atoms[i], bsSelected, true, false);
+    addAtomComment = JC.checkFlag(flags, JC.SMILES_ATOM_COMMENT);
+    bsSelected = BSUtil.copy(bsSelected);    
+    
+    if (JC.checkFlag(flags, JC.SMILES_BIO))
+      return getBioSmiles(bsSelected, comment, flags);
+    
+    this.bsSelected = bsSelected;
+    explicitH = JC.checkFlag(flags, JC.SMILES_EXPLICIT_H);
+    topologyOnly = JC.checkFlag(flags, JC.SMILES_TOPOLOGY);
+    getAromatic = !JC.checkFlag(flags, JC.SMILES_NOAROMATIC);
+    noStereo = JC.checkFlag(flags, JC.SMILES_NOSTEREO);
+    isPolyhedral = JC.checkFlag(flags, JC.SMILES_POLYHEDRAL);
+    return getSmilesComponent(atoms[ipt], bsSelected, true, false, false);
   }
 
-  String getBioSmiles(BNode[] atoms, int ac, BS bsSelected,
-                      boolean allowUnmatchedRings, boolean addCrossLinks, String comment)
+  private String getBioSmiles(BS bsSelected, String comment, int flags)
       throws InvalidSmilesException {
-    this.atoms = atoms;
-    this.ac = ac;
+    addAtomComment = JC.checkFlag(flags, JC.SMILES_ATOM_COMMENT);
+    boolean allowUnmatchedRings = JC.checkFlag(flags,
+        JC.SMILES_BIO_ALLOW_UNMATCHED_RINGS);
+    boolean noBioComments = JC.checkFlag(flags, JC.SMILES_BIO_NOCOMMENTS);
+    boolean crosslinkCovalent = JC
+        .checkFlag(flags, JC.SMILES_BIO_COV_CROSSLINK);
+    boolean crosslinkHBonds = JC.checkFlag(flags, JC.SMILES_BIO_HH_CROSSLINK);
+    boolean addCrosslinks = (crosslinkCovalent || crosslinkHBonds);
     SB sb = new SB();
-    BS bs = BSUtil.copy(bsSelected);
-    if (comment != null)
-      sb.append("//* Jmol bioSMILES ").append(comment.replace('*', '_')).append(
-        " *//");
-    String end = "\n";
+    BS bs = bsSelected;
+    if (comment != null && !noBioComment)
+      sb.append("//* Jmol bioSMILES ").append(comment.replace('*', '_'))
+          .append(" *//");
+    String end = (noBioComment ? "" : "\n");
     BS bsIgnore = new BS();
     String lastComponent = null;
+    String groupString = "";
     String s;
-    Lst<Integer> vLinks = new  Lst<Integer>();
+    Lst<Integer> vLinks = new Lst<Integer>();
     try {
       int len = 0;
       for (int i = bs.nextSetBit(0); i >= 0; i = bs.nextSetBit(i + 1)) {
-        BNode a = atoms[i];
+        BNode a = (BNode) atoms[i];
         String ch = a.getGroup1('?');
         String bioStructureName = a.getBioStructureTypeName();
-        boolean unknown = (ch.equals("?"));
+        boolean unknown = (ch == ch.toLowerCase());
         if (end != null) {
           if (sb.length() > 0)
             sb.append(end);
@@ -129,45 +149,63 @@ public class SmilesGenerator {
           len = 0;
           if (bioStructureName.length() > 0) {
             int id = a.getChainID();
-            if (id != 0) {
-              s = "//* chain " + a.getChainIDStr() + " " + bioStructureName + " " + a.getResno() + " *// ";
+            if (id != 0 && !noBioComments) {
+              s = "//* chain " + a.getChainIDStr() + " " + bioStructureName
+                  + " " + a.getResno() + " *// ";
               len = s.length();
               sb.append(s);
             }
-            sb.append("~").appendC(bioStructureName.charAt(0)).append("~");
             len++;
+            sb.append("~").appendC(bioStructureName.toLowerCase().charAt(0))
+                .append("~");
           } else {
-            s = getSmilesComponent(a, bs, false, true);
+            s = getSmilesComponent(a, bs, false, true, true);
             if (s.equals(lastComponent)) {
               end = "";
-            } else {
-              lastComponent = s;
-              String groupName = a.getGroup3(true);
-              if (groupName != null)
-                sb.append("//* ").append(groupName).append(" *//");
-              sb.append(s);
-              end = ".\n";
+              continue;
             }
+            lastComponent = s;
+            String groupName = a.getGroup3(true);
+            String key;
+            if (noBioComments) {
+              key = "/" + s + "/";
+            } else {
+              if (groupName != null) {
+                s = "//* " + groupName + " *//" + s;
+              }
+              key = s + "//";
+            }
+            if (groupString.indexOf(key) >= 0) {
+              end = "";
+              continue;
+            }
+            groupString += key;
+            sb.append(s);
+            end = (noBioComments ? "." : ".\n");
             continue;
           }
         }
-        if (len >= 75) {
+        if (len >= 75 && !noBioComments) {
           sb.append("\n  ");
           len = 2;
         }
+        if (addAtomComment)
+          sb.append("\n//* [" + a.getGroup3(false) + "#" + a.getResno()
+              + "] *//\t");
         if (unknown) {
-          addBracketedBioName(sb, a, bioStructureName.length() > 0 ? ".0" : null);
+          addBracketedBioName(sb, a, bioStructureName.length() > 0 ? ".0"
+              : null, false);
         } else {
           sb.append(ch);
         }
         len++;
-        int i0 = a.getOffsetResidueAtom("0", 0);
-        if (addCrossLinks) {
-          a.getCrossLinkLeadAtomIndexes(vLinks);
-          for (int j = 0; j < vLinks.size(); j++) {
+        //int i0 = a.getOffsetResidueAtom("\0", 0);
+        if (addCrosslinks) {
+          a.getCrossLinkVector(vLinks, crosslinkCovalent, crosslinkHBonds);
+          for (int j = 0; j < vLinks.size(); j += 3) {
             sb.append(":");
-            s = getRingCache(i0, vLinks.get(j).intValue(),
-                htRingsSequence);
+            s = getRingCache(vLinks.get(j).intValue(), vLinks.get(j + 1)
+                .intValue(), htRingsSequence);
             sb.append(s);
             len += 1 + s.length();
           }
@@ -175,13 +213,14 @@ public class SmilesGenerator {
         }
         a.getGroupBits(bsIgnore);
         bs.andNot(bsIgnore);
-        int i2 = a.getOffsetResidueAtom("0", 1);
+        int i2 = a.getOffsetResidueAtom("\0", 1);
         if (i2 < 0 || !bs.get(i2)) {
-          sb.append(" //* ").appendI(a.getResno()).append(" *//");       
+          if (!noBioComments)
+            sb.append(" //* ").appendI(a.getResno()).append(" *//");
           if (i2 < 0 && (i2 = bs.nextSetBit(i + 1)) < 0)
             break;
           if (len > 0)
-            end = ".\n";
+            end = (noBioComments ? "." : ".\n");
         }
         i = i2 - 1;
       }
@@ -195,10 +234,13 @@ public class SmilesGenerator {
     s = sb.toString();
     if (s.endsWith(".\n"))
       s = s.substring(0, s.length() - 2);
+    else if (noBioComments && s.endsWith("."))
+      s = s.substring(0, s.length() - 1);
     return s;
   }
 
-  private void addBracketedBioName(SB sb, Node atom, String atomName) {
+  private void addBracketedBioName(SB sb, Node atom, String atomName,
+                                   boolean addComment) {
     sb.append("[");
     if (atomName != null && atom instanceof BNode) {
       BNode a = (BNode) atom;
@@ -206,11 +248,12 @@ public class SmilesGenerator {
       sb.append(a.getGroup3(false));
       if (!atomName.equals(".0"))
         sb.append(atomName).append("#").appendI(a.getElementNumber());
-      sb.append("//* ").appendI(
-          a.getResno());
-      if (chain.length() > 0)
-        sb.append(":").append(chain);
-      sb.append(" *//");
+      if (addComment) {
+        sb.append("//* ").appendI(a.getResno());
+        if (chain.length() > 0)
+          sb.append(":").append(chain);
+        sb.append(" *//");
+      }
     } else {
       sb.append(Elements.elementNameFromNumber(atom.getElementNumber()));
     }
@@ -224,16 +267,19 @@ public class SmilesGenerator {
    * 
    * @param atom
    * @param bs
-   * @param allowBioResidues 
+   * @param allowBioResidues
    * @param allowConnectionsToOutsideWorld
+   * @param forceBrackets
    * @return SMILES
    * @throws InvalidSmilesException
    */
   private String getSmilesComponent(Node atom, BS bs, boolean allowBioResidues,
-                                    boolean allowConnectionsToOutsideWorld)
+                                    boolean allowConnectionsToOutsideWorld,
+                                    boolean forceBrackets)
       throws InvalidSmilesException {
 
-    if (!explicitH && atom.getElementNumber() == 1 && atom.getEdges().length > 0)
+    if (!explicitH && atom.getElementNumber() == 1
+        && atom.getEdges().length > 0)
       atom = atoms[atom.getBondedAtomIndex(0)]; // don't start with H
     bsSelected = JmolMolecule.getBranchBitSet(atoms, atom.getIndex(),
         BSUtil.copy(bs), null, -1, true, allowBioResidues);
@@ -265,19 +311,18 @@ public class SmilesGenerator {
     bsToDo = BSUtil.copy(bsSelected);
     SB sb = new SB();
 
-    
     // The idea hear is to allow a hypervalent atom to be listed first
-    for (int i = bsToDo.nextSetBit(0); i >= 0; i = bsToDo.nextSetBit(i + 1))
-      if (atoms[i].getCovalentBondCount() > 4) {
-        if (atom == null)
-          sb.append(".");
-        getSmiles(sb, atoms[i], allowConnectionsToOutsideWorld, false,
-            explicitH);
-        atom = null;
-      }
+      for (int i = bsToDo.nextSetBit(0); i >= 0; i = bsToDo.nextSetBit(i + 1))
+        if (atoms[i].getCovalentBondCount() > 4 || isPolyhedral) {
+          if (atom == null)
+            sb.append(".");
+          getSmilesAt(sb, atoms[i], allowConnectionsToOutsideWorld, false,
+              explicitH, forceBrackets);
+          atom = null;
+        }
     if (atom != null)
-      while ((atom = getSmiles(sb, atom, allowConnectionsToOutsideWorld, true,
-          explicitH)) != null) {
+      while ((atom = getSmilesAt(sb, atom, allowConnectionsToOutsideWorld,
+          true, explicitH, forceBrackets)) != null) {
       }
     while (bsToDo.cardinality() > 0 || !htRings.isEmpty()) {
       Iterator<Object[]> e = htRings.values().iterator();
@@ -291,8 +336,8 @@ public class SmilesGenerator {
       sb.append(".");
       prevSp2Atoms = null;
       prevAtom = null;
-      while ((atom = getSmiles(sb, atom, allowConnectionsToOutsideWorld, true,
-          explicitH)) != null) {
+      while ((atom = getSmilesAt(sb, atom, allowConnectionsToOutsideWorld,
+          true, explicitH, forceBrackets)) != null) {
       }
     }
     if (!htRings.isEmpty()) {
@@ -422,7 +467,7 @@ public class SmilesGenerator {
             //      \   /
             //    [i0]=[j]       /a /b  \c \d
             //   
-            boolean isOpposite = SmilesSearch.isDiaxial(atom12[i0], atom12[j],
+            boolean isOpposite = SmilesStereo.isDiaxial(atom12[i0], atom12[j],
                 a0, a1, vTemp, 0);
             if (c1 == '\0' || (c1 != c0) == isOpposite) {
               boolean isUp = (c0 == '\\' && isOpposite || c0 == '/'
@@ -443,9 +488,9 @@ public class SmilesGenerator {
     }
   }
 
-  private Node getSmiles(SB sb, Node atom,
+  private Node getSmilesAt(SB sb, Node atom,
                              boolean allowConnectionsToOutsideWorld, 
-                             boolean allowBranches, boolean explicitH) {
+                             boolean allowBranches, boolean explicitH, boolean forceBrackets) {
     int atomIndex = atom.getIndex();
 
     if (!bsToDo.get(atomIndex))
@@ -464,6 +509,10 @@ public class SmilesGenerator {
     Edge bond0 = null;
     Edge bondPrev = null;
     Edge[] bonds = atom.getEdges();
+    if (stereoReference != null) {
+      allowBranches = false;
+      sortBonds(atom, prevAtom, stereoReference);
+    }
     Node aH = null;
     int stereoFlag = (isAromatic ? 10 : 0);
     Node[] stereo = new Node[7];
@@ -577,7 +626,7 @@ public class SmilesGenerator {
       prevAtom = atom;
       prevSp2Atoms = null;
       Edge bond0t = bond0;
-      getSmiles(s2, a, allowConnectionsToOutsideWorld, allowBranches, explicitH);
+      getSmilesAt(s2, a, allowConnectionsToOutsideWorld, allowBranches, explicitH, forceBrackets);
       bond0 = bond0t;
       s2.append(")");
       if (sMore.indexOf(s2.toString()) >= 0)
@@ -614,8 +663,8 @@ public class SmilesGenerator {
     // now process any rings
 
     String atat = null;
-    if (!allowBranches && (v.size() == 5 || v.size() == 6))
-      atat = sortInorganic(atom, v);
+    if (!allowBranches && !noStereo && stereoReference == null && (v.size() == 5 || v.size() == 6))
+      atat = sortInorganic(atom, v, vTemp);
     for (int i = 0; i < v.size(); i++) {
       Edge bond = v.get(i);
       if (bond == bond0)
@@ -661,16 +710,16 @@ public class SmilesGenerator {
     // for bioSMARTS we provide the connecting atom if 
     // present. For example, in 1BLU we have 
     // .[CYS.SG#16] could match either the atom number or the element number 
-    if (Logger.debugging)
-      sb.append("\n//* " + atom + " *//\t");
+    if (addAtomComment)
+      sb.append("\n//* " + atom.toString() + " *//\t");
     if (topologyOnly)
       sb.append("*");
     else if (isExtension && groupType.length() != 0 && atomName.length() != 0)
-      addBracketedBioName(sb, atom, "." + atomName);
+      addBracketedBioName(sb, atom, "." + atomName, false);
     else
       sb.append(SmilesAtom
-          .getAtomLabel(atomicNumber, isotope, valence, charge, nH, isAromatic,
-              atat != null ? atat : checkStereoPairs(atom, atomIndex, stereo, stereoFlag)));
+          .getAtomLabel(atomicNumber, isotope, (forceBrackets ? -1 : valence), charge, nH, isAromatic,
+              atat != null ? atat : noStereo ? null : checkStereoPairs(atom, atomIndex, stereo, stereoFlag)));
     sb.appendSB(sMore);
 
     // check the next bond
@@ -696,6 +745,16 @@ public class SmilesGenerator {
     return atomNext;
   }
 
+  void sortBonds(Node atom, Node refAtom, P3 center) {
+    if (smilesStereo == null)
+      try {
+        smilesStereo = SmilesStereo.newStereo(null);
+      } catch (InvalidSmilesException e) {
+        // not possible
+      }
+    smilesStereo.sortBondsByStereo(atom, refAtom, center, atom.getEdges(), vTemp.vA);
+  }
+
   /**
    * We must sort the bond vector such that a diaxial pair is
    * first and last. Then we assign stereochemistry based on what
@@ -705,9 +764,10 @@ public class SmilesGenerator {
    * 
    * @param atom
    * @param v
+   * @param vTemp 
    * @return  "@" or "@@" or ""
    */
-  private String sortInorganic(Node atom, Lst<Edge> v) {
+  private String sortInorganic(Node atom, Lst<Edge> v, VTemp vTemp) {
     int atomIndex = atom.getIndex();
     int n = v.size();
     Lst<Edge[]> axialPairs = new  Lst<Edge[]>();
@@ -735,7 +795,7 @@ public class SmilesGenerator {
           continue;
         bond2 = v.get(j);
         a2 = bond2.getOtherAtomNode(atom);
-        if (SmilesSearch.isDiaxial(atom, atom, a1, a2, vTemp, -0.95f)) {
+        if (SmilesStereo.isDiaxial(atom, atom, a1, a2, vTemp, -0.95f)) {
           axialPairs.addLast(new Edge[] { bond1, bond2 });
           isAxial = true;
           bsDone.set(j);
@@ -745,13 +805,13 @@ public class SmilesGenerator {
       if (!isAxial)
         bonds.addLast(bond1);
     }
-    int nPairs = axialPairs.size();
+    int npAxial = axialPairs.size();
 
     // AX6 or AX5 are fine as is
     // can't proceed if octahedral and not all axial pairs
     // or trigonal bipyramidal and no axial pair.
     
-    if (isOK || n == 6 && nPairs != 3 || n == 5 && nPairs == 0)
+    if (isOK || n == 6 && npAxial != 3 || n == 5 && npAxial == 0)
       return "";
     pair0 = axialPairs.get(0);
     bond1 = pair0[0];
@@ -761,13 +821,13 @@ public class SmilesGenerator {
     
     v.clear();
     v.addLast(bond1);
-    if (nPairs > 1)
+    if (npAxial > 1)
       bonds.addLast(axialPairs.get(1)[0]);
-    if (nPairs == 3)
+    if (npAxial == 3)
       bonds.addLast(axialPairs.get(2)[0]);
-    if (nPairs > 1)
+    if (npAxial > 1)
       bonds.addLast(axialPairs.get(1)[1]);
-    if (nPairs == 3)
+    if (npAxial == 3)
       bonds.addLast(axialPairs.get(2)[1]);
     for (int i = 0; i < bonds.size(); i++) {
       bond1 = bonds.get(i);
@@ -778,7 +838,7 @@ public class SmilesGenerator {
     
     // now deterimine the stereochemistry
     
-    return getStereoFlag(atom, stereo, n, vTemp);
+    return SmilesStereo.getStereoFlag(atom, stereo, n, vTemp);
   }
 
   private String checkStereoPairs(Node atom, int atomIndex,
@@ -794,50 +854,8 @@ public class SmilesGenerator {
           break;
         }
     }
-    return (stereoFlag > 6 ? "" : getStereoFlag(atom, stereo,
+    return (stereoFlag > 6 ? "" : SmilesStereo.getStereoFlag(atom, stereo,
         stereoFlag, vTemp));
-  }
-
-  /**
-   * 
-   * @param atom0
-   * @param atoms
-   * @param nAtoms
-   * @param v
-   * @return        String
-   */
-  private static String getStereoFlag(Node atom0, Node[] atoms, int nAtoms, VTemp v) {
-    Node atom1 = atoms[0];
-    Node atom2 = atoms[1];
-    Node atom3 = atoms[2];
-    Node atom4 = atoms[3];
-    Node atom5 = atoms[4];
-    Node atom6 = atoms[5];
-    int chiralClass = SmilesAtom.STEREOCHEMISTRY_TETRAHEDRAL;
-    switch (nAtoms) {
-    default:
-    case 5:
-    case 6:
-      // like tetrahedral
-      return (SmilesSearch.checkStereochemistryAll(false, atom0, chiralClass, 1, atom1, atom2, atom3, atom4, atom5, atom6, v)? "@" : "@@");
-    case 2: // allene
-    case 4: // tetrahedral, square planar
-      if (atom3 == null || atom4 == null)
-        return "";
-      float d = SmilesAromatic.getNormalThroughPoints(atom1, atom2, atom3, v.vTemp, v.vA, v.vB);
-      if (Math.abs(SmilesSearch.distanceToPlane(v.vTemp, d, (P3) atom4)) < 0.2f) {
-        chiralClass = SmilesAtom.STEREOCHEMISTRY_SQUARE_PLANAR;
-        if (SmilesSearch.checkStereochemistryAll(false, atom0, chiralClass, 1, atom1, atom2, atom3, atom4, atom5, atom6, v))
-          return "@SP1";
-        if (SmilesSearch.checkStereochemistryAll(false, atom0, chiralClass, 2, atom1, atom2, atom3, atom4, atom5, atom6, v))
-          return "@SP2";
-        if (SmilesSearch.checkStereochemistryAll(false, atom0, chiralClass, 3, atom1, atom2, atom3, atom4, atom5, atom6, v))
-          return "@SP3";       
-      } else {
-        return (SmilesSearch.checkStereochemistryAll(false, atom0, chiralClass, 1, atom1, atom2, atom3, atom4, atom5, atom6, v)? "@" : "@@");
-      }       
-    }
-    return "";
   }
 
   /**
@@ -883,11 +901,24 @@ public class SmilesGenerator {
     Object[] o = ht.get(key);
     String s = (o == null ? null : (String) o[0]);
     if (s == null) {
-      ht.put(key, new Object[] {s = getRingPointer(++nPairs), Integer.valueOf(i1) });
+      bsRingKeys.set(++nPairs);
+      nPairsMax = Math.max(nPairs, nPairsMax);
+      ht.put(key,
+          new Object[] { s = getRingPointer(nPairs), Integer.valueOf(i1),
+              Integer.valueOf(nPairs) });
       if (Logger.debugging)
         Logger.debug("adding for " + i0 + " ring key " + nPairs + ": " + key);
     } else {
       ht.remove(key);
+      // let the ring count go up to 9 before resetting if all rings are closed;
+      // if it runs over 99 ever, then never reset it; 
+      // otherwise If it runs over 9 ever, then just reset it to 10
+      // otherwise if it hits 9, then reset it to 0
+      int nPair = ((Integer) o[2]).intValue();
+      bsRingKeys.clear(nPair);
+      if (bsRingKeys.nextSetBit(0) < 0 && (nPairsMax == 2 || nPairsMax == 99)) {
+        nPairsMax = nPairs = (nPairsMax == 99 ? 10 : 0);
+      }
       if (Logger.debugging)
         Logger.debug("using ring key " + key);
     }
@@ -908,4 +939,13 @@ public class SmilesGenerator {
     return Math.min(i0, i1) + "_" + Math.max(i0, i1);
   }
 
+//static {
+//  T3 atom = P3.new3(0,  0.0001f,  -1);
+//  T3 atomPrev = P3.new3(0,  0 , 1);
+//  T3 ref = P3.new3(0,  0 , 0);
+//  T3 a = P3.new3(1,  0,  0);
+// System.out.println(Measure.computeTorsion((T3) atom, (T3)atomPrev, ref, (T3) a, true));  
+//}
+
 }
+

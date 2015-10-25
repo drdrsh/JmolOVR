@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-06-12 22:31:03 -0500 (Fri, 12 Jun 2015) $
- * $Revision: 20578 $
+ * $Date: 2015-10-13 11:34:48 -0500 (Tue, 13 Oct 2015) $
+ * $Revision: 20819 $
  *
  * Copyright (C) 2003-2005  Miguel, Jmol Development Team
  *
@@ -199,8 +199,9 @@ public class FileManager implements BytePoster {
     String name0 = name;
     name = vwr.resolveDatabaseFormat(name);
     if (!name0.equals(name) && name0.indexOf("/") < 0 
-        && (name0.startsWith("$") || name0.startsWith(":") || name0.startsWith("==")))
+        && Viewer.hasDatabasePrefix(name0)) {
       htParams.put("dbName", name0);
+    }
     int pt = name.indexOf("::");
     String nameAsGiven = (pt >= 0 ? name.substring(pt + 2) : name);
     String fileType = (pt >= 0 ? name.substring(0, pt) : null);
@@ -232,6 +233,8 @@ public class FileManager implements BytePoster {
       int pt = fileNames[i].indexOf("::");
       String nameAsGiven = (pt >= 0 ? fileNames[i].substring(pt + 2)
           : fileNames[i]);
+      
+      System.out.println(i + " FM " + nameAsGiven);
       String fileType = (pt >= 0 ? fileNames[i].substring(0, pt) : null);
       String[] names = getClassifiedName(nameAsGiven, true);
       if (names.length == 1)
@@ -430,7 +433,7 @@ public class FileManager implements BytePoster {
             return null;
           name = url.toString();
           if (showMsg && name.toLowerCase().indexOf("password") < 0)
-            Logger.info("FileManager opening 1 " + name);
+            Logger.info("FileManager opening url " + name);
           // note that in the case of JS, this is a javajs.util.SB.
           ret = vwr.apiPlatform.getURLContents(url, outputBytes, post, false);
           //          if ((ret instanceof SB && ((SB) ret).length() < 3
@@ -459,7 +462,7 @@ public class FileManager implements BytePoster {
         } else if (!allowCached
             || (cacheBytes = (byte[]) cacheGet(name, true)) == null) {
           if (showMsg)
-            Logger.info("FileManager opening 2 " + name);
+            Logger.info("FileManager opening file " + name);
           ret = vwr.apiPlatform.getBufferedFileInputStream(name);
         }
         if (ret instanceof String)
@@ -597,7 +600,7 @@ public class FileManager implements BytePoster {
     if (name.indexOf("|") >= 0) {
       subFileList = PT.split(name.replace('\\', '/'), "|");
       if (bytes == null)
-        Logger.info("FileManager opening 3 " + name);
+        Logger.info("FileManager opening zip " + name);
       name = subFileList[0];
     }
     Object t = (bytes == null ? getBufferedInputStreamOrErrorMessageFromName(
@@ -609,14 +612,16 @@ public class FileManager implements BytePoster {
       BufferedInputStream bis = (BufferedInputStream) t;
       if (Rdr.isGzipS(bis))
         bis = Rdr.getUnzippedInputStream(vwr.getJzt(), bis);
-      if (forceInputStream)
-        return  bis;
+      // if we have a subFileList, we don't want to return the stream for the zip file itself
+      if (forceInputStream && subFileList == null)
+        return bis;
       if (Rdr.isCompoundDocumentS(bis)) {
         // very specialized reader; assuming we have a Spartan document here
         GenericBinaryDocument doc = (GenericBinaryDocument) Interface
             .getInterface("javajs.util.CompoundDocument", vwr, "file");
         doc.setStream(vwr.getJzt(), bis, true);
-        return Rdr.getBR(doc.getAllDataFiles("Molecule", "Input").toString());
+        String s = doc.getAllDataFiles("Molecule", "Input").toString();
+        return (forceInputStream ? Rdr.getBIS(s.getBytes()) : Rdr.getBR(s));
       }
       if (Rdr.isPickleS(bis))
         return bis;
@@ -628,7 +633,7 @@ public class FileManager implements BytePoster {
             forceInputStream);
         return (o instanceof String ? Rdr.getBR((String) o) : o);
       }
-      return Rdr.getBufferedReader(bis, null);
+      return (forceInputStream ? bis : Rdr.getBufferedReader(bis, null));
     } catch (Exception ioe) {
       return ioe.toString();
     }
@@ -1184,7 +1189,7 @@ public class FileManager implements BytePoster {
     // in the case of JavaScript local file reader, 
     // this will be a cached file, and the filename will not be known.
     int pt = key.indexOf("|");
-    if (pt >= 0)
+    if (pt >= 0 && !key.endsWith("##JmolSurfaceInfo##")) // check for PyMOL surface creation
       key = key.substring(0, pt);
     key = getFilePath(key, true, false);
     Object data = null;
@@ -1207,9 +1212,9 @@ public class FileManager implements BytePoster {
   void cacheClear() {
     Logger.info("cache cleared");
     cache.clear();
-    String fileName = null;
-    fileName = fileName == null ? null : getCanonicalName(Rdr.getZipRoot(fileName));
-    if (pngjCache == null || fileName != null && !pngjCache.containsKey(fileName))
+    //String fileName = null;
+    //fileName = fileName == null ? null : getCanonicalName(Rdr.getZipRoot(fileName));
+    if (pngjCache == null)// || fileName != null && !pngjCache.containsKey(fileName))
       return;
     pngjCache = null;
     Logger.info("PNGJ cache cleared");
@@ -1296,6 +1301,7 @@ public class FileManager implements BytePoster {
         ? vwr.vwrOptions.get("codePath") + classPath + resourceName
             : url.getFile());
     if (vwr.async) {
+      // if we are running asynchronously, this will be a problem. 
       Object bytes = vwr.fm.cacheGet(resourceName, false);
       if (bytes == null)
         throw new JmolAsyncException(resourceName);
@@ -1383,6 +1389,8 @@ public class FileManager implements BytePoster {
       return "Nff";
     if (line.indexOf("BEGIN_DATAGRID_3D") >= 0 || line.indexOf("BEGIN_BANDGRID_3D") >= 0)
       return "Xsf";
+    if (line.indexOf("tiles in x, y") >= 0)
+      return "Ras3D";
     // binary formats: problem here is that the buffered reader
     // may be translating byte sequences into unicode
     // and thus shifting the offset

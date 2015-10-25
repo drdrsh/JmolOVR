@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-11 16:06:07 -0500 (Tue, 11 Aug 2015) $
- * $Revision: 20688 $
+ * $Date: 2015-10-20 17:41:32 -0500 (Tue, 20 Oct 2015) $
+ * $Revision: 20840 $
 
  *
  * Copyright (C) 2003-2005  Miguel, Jmol Development, www.jmol.org
@@ -51,8 +51,9 @@ public final class JC {
   public static final String PDB_ANNOTATIONS = ";dssr;rna3d;dom;val;";
 
   public static String[] databases = { 
-    "dssr", "http://x3dna.bio.columbia.edu/dssr/report.php?id=%FILE&opts=--jmol%20--more",
-    "dssrModel", "http://x3dna.bio.columbia.edu/dssr/report.php?POST?opts=--jmol --more&model=",  
+    "dssr", "http://x3dna.bio.columbia.edu/dssr/report.php?id=%FILE&opts=--json=ebi-no-str-id",
+    //"dssr", "http://x3dna.bio.columbia.edu/dssr/report.php?id=%FILE&opts=--jmol%20--more",
+    "dssrModel", "http://x3dna.bio.columbia.edu/dssr/report.php?POST?opts=--json=ebi-no-str-id&model=", // called in DSSR1.java  
     "ligand", "http://www.rcsb.org/pdb/files/ligand/%FILE.cif",
     "mp", "http://www.materialsproject.org/materials/%FILE/cif",
     "nci", "http://cactus.nci.nih.gov/chemical/structure/%FILE",
@@ -64,7 +65,8 @@ public final class JC {
     "pdbe2", "http://www.ebi.ac.uk/pdbe/static/entry/%FILE_updated.cif",
     "pubchem", "http://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/%FILE/SDF?record_type=3d",
     "map", "http://www.ebi.ac.uk/pdbe/api/%TYPE/%FILE?pretty=false&metadata=true", 
-    "rna3d", "http://rna.bgsu.edu/rna3dhub/%TYPE/download/%FILE" 
+    "rna3d", "http://rna.bgsu.edu/rna3dhub/%TYPE/download/%FILE",
+    "aflow", "http://aflowlib.mems.duke.edu/users/jmolers/binary_new/%FILE.aflow_binary"
   };
   
   public static String[] macros = {
@@ -138,7 +140,7 @@ public final class JC {
     if (tmpDate != null) {
       tmpDate = tmpDate.substring(7, 23);
       // NOTE : date is updated in the properties by SVN, and is in the format
-      // "$Date: 2015-08-11 16:06:07 -0500 (Tue, 11 Aug 2015) $"
+      // "$Date: 2015-10-20 17:41:32 -0500 (Tue, 20 Oct 2015) $"
       //  0         1         2
       //  012345678901234567890123456789
     }
@@ -461,6 +463,29 @@ public final class JC {
   public final static byte ATOMID_HO3_PRIME       = 89;
   public final static byte ATOMID_HO5_PRIME       = 90;
 
+  // These masks are only used for P-only and N-only polymers
+  // or cases where there are so few atoms that a monomer's type
+  // cannot be determined by checking actual atoms and connections.
+  // They are not used for NucleicMonomer or AminoMonomer classes.
+  //
+  //             I  A G        
+  //   purine:   100101 = 0x25
+  //
+  //              UT C
+  // pyrimidine: 011010 = 0x1A
+  //
+  //            +IUTACGDIUTACG IUTACG
+  //        dna: 001111 111111 001000 = 0x0FFC8
+  //  
+  //            +IUTACGDIUTACG IUTACG
+  //        rna: 110??? 000000 110111 = 0x30037
+  
+  public static final int PURINE_MASK = 0x25 | (0x25 << 6) | (0x25 << 12);
+  public static final int PYRIMIDINE_MASK = 0x1A | (0x1A << 6) | (0x1A << 12);
+  public static final int DNA_MASK = 0x0FFC8;
+  public static final int RNA_MASK = 0x30037;
+  
+
   
 
   ////////////////////////////////////////////////////////////////
@@ -509,13 +534,32 @@ public final class JC {
     "@solvent water, (_g>=" + GROUPID_SOLVENT_MIN + " & _g<" + GROUPID_ION_MAX + ")", // water, other solvent or ions
     "@ligand _g=0|!(_g<"+ GROUPID_ION_MIN + ",protein,nucleic,water)", // includes UNL
 
-    // structure
+    // protein structure
     "@turn structure=1",
     "@sheet structure=2",
     "@helix structure=3",
     "@helix310 substructure=7",
     "@helixalpha substructure=8",
     "@helixpi substructure=9",
+
+    // nucleic acid structures
+    "@bulges within(dssr,'bulges')",
+    "@coaxStacks within(dssr,'coaxStacks')",
+    "@hairpins within(dssr,'hairpins')",
+    "@hbonds within(dssr,'hbonds')",
+    "@helices within(dssr,'helices')",
+    "@iloops within(dssr,'iloops')",
+    "@isoCanonPairs within(dssr,'isoCanonPairs')",
+    "@junctions within(dssr,'junctions')",
+    "@kissingLoops within(dssr,'kissingLoops')",
+    "@multiplets within(dssr,'multiplets')",
+    "@nonStack within(dssr,'nonStack')",
+    "@nts within(dssr,'nts')",
+    "@naChains within(dssr,'naChains')",
+    "@pairs within(dssr,'pairs')",
+    "@ssSegments within(dssr,'ssSegments')",
+    "@stacks within(dssr,'stacks')",
+    "@stems within(dssr,'stems')",
   };
   
   // these are only updated once per file load or file append
@@ -577,8 +621,9 @@ public final class JC {
     // structure related
     //
     "@alpha _a=2", // rasmol doc says "approximately *.CA" - whatever?
-    "@backbone protein&(_a>=1&_a<6|_a>=64&_a<72)|nucleic&(_a>=6&_a<14|_a>=72)",    
-    "@spine protein&_a>=1&_a<4|nucleic&_a>=6&_a<14&_a!=12",
+    "@_bb protein&_a>=1&_a<6 | nucleic&(_a>=6&_a<14|_a>=73&&_a<=79||_a==99||_a=100)", // no H atoms    
+    "@backbone _bb | _H && connected(single, _bb)",    
+    "@spine protein&_a>=1&_a<4|nucleic&(_a>=6&_a<11|_a=13)",
     "@sidechain (protein,nucleic) & !backbone",
     "@base nucleic & !backbone",
     "@dynamic_flatring search('[a]')"
@@ -644,11 +689,10 @@ public final class JC {
 
   public final static int SHAPE_MAX_SIZE_ZERO_ON_RESTRICT = 21; //////////
   
-  public final static int SHAPE_POLYHEDRA  = 21;  // for restrict, uses setProperty(), not setSize()
+  public final static int SHAPE_MIN_HAS_ID  = 21; //////////
 
-  public final static int SHAPE_MIN_HAS_ID          = 22; //////////
-  public final static int SHAPE_MIN_MESH_COLLECTION = 22; //////////
-  
+  public final static int SHAPE_POLYHEDRA   = 21;  // for restrict, uses setProperty(), not setSize()
+
   public final static int SHAPE_DRAW        = 22;
   
   public final static int SHAPE_MAX_SPECIAL = 23; //////////
@@ -884,7 +928,7 @@ public final class JC {
   private final static int LABEL_FLAGY_OFFSET_SHIFT   = 11;    // 11-20 is Y offset
   private final static int LABEL_FLAGX_OFFSET_SHIFT   = 21;    // 21-30 is X offset
   
-  public final static int LABEL_FLAGS                 = 0x07F;
+  public final static int LABEL_FLAGS                 = 0x03F; // does not include absolute or centered
   private final static int LABEL_POINTER_FLAGS        = 0x003;
   public final static int LABEL_POINTER_NONE          = 0x000;
   public final static int LABEL_POINTER_ON            = 0x001;  // add label pointer
@@ -1009,40 +1053,91 @@ public final class JC {
     return hAlignNames[(align >> TEXT_ALIGN_SHIFT) & 3];
   }
   
+  public static final int SMILES_TYPE_SMILES       = 0x1;
+  public static final int SMILES_TYPE_SMARTS       = 0x2;
+  
+  public static final int SMILES_MATCH_ALL         = 0x10;
+  public static final int SMILES_MATCH_ONE         = 0x20;
+  public static final int SMILES_RETURN_FIRST      = 0x40;
+
+  public static final int SMILES_EXPLICIT_H                = 0x00100;
+  public static final int SMILES_TOPOLOGY                  = 0x00200;
+  public static final int SMILES_NOAROMATIC                = 0x00400;
+  public static final int SMILES_NOSTEREO                  = 0x00800;
+  public static final int SMILES_POLYHEDRAL                = 0x01000;
+  public static final int SMILES_BIO                       = 0x10000;
+  public static final int SMILES_BIO_ALLOW_UNMATCHED_RINGS = 0x11000;
+  public static final int SMILES_BIO_COV_CROSSLINK         = 0x12000;
+  public static final int SMILES_BIO_HH_CROSSLINK          = 0x16000;
+  public static final int SMILES_BIO_COMMENT               = 0x30000;
+  public static final int SMILES_BIO_NOCOMMENTS            = 0x50000;
+  public static final int SMILES_ATOM_COMMENT              = 0x80000;
+
+ 
   public static final int JSV_NOT = -1;
   public static final int JSV_SEND_JDXMOL = 0;
   public static final int JSV_SETPEAKS = 7;
   public static final int JSV_SELECT = 14;
   public static final int JSV_STRUCTURE = 21;
   public static final int JSV_SEND_H1SIMULATE = 28;
+  public static final int NBO_MODEL = 35;
+  public static final int NBO_RUN = 42;
+  public static final int NBO_VIEW = 49;
+  public static final int NBO_SEARCH = 56;
+  public static final int NBO_CONFIG = 63;
 
-  public static final int SMILES_EXPLICIT_H               = 0x001;
-  public static final int SMILES_TOPOLOGY                 = 0x002;
-  public static final int SMILES_NOAROMATIC               = 0x004;
-  public static final int SMILES_BIO                      = 0x100;
-  public static final int SMILES_BIO_ALLOW_UNMACHED_RINGS = 0x101;
-  public static final int SMILES_BIO_CROSSLINK            = 0x102;
-  public static final int SMILES_BIO_COMMENT              = 0x104;
-  
-  public static final int SMILES_TYPE_SMILES       = 0x010000;
-  public static final int SMILES_TYPE_SMARTS       = 0x020000;
-  public static final int SMILES_MATCH_ALL         = 0x100000;
-  public static final int SMILES_MATCH_ONE         = 0x200000;
-  public static final int SMILES_RETURN_FIRST      = 0x400000;
-
-
-
-
-  public static int getJSVSyncSignal(String script) {
+ 
+  public static int getServiceCommand(String script) {
     return (script.length() < 7 ? -1 : ("" +
-    		"JSPECVI" +
-    		"PEAKS: " +
-    		"SELECT:" +
-    		"JSVSTR:" +
-    		"H1SIMUL")
+        "JSPECVI" +
+        "PEAKS: " +
+        "SELECT:" +
+        "JSVSTR:" +
+        "H1SIMUL" +
+        "NBO:MOD" +
+        "NBO:RUN" +
+        "NBO:VIE" +
+        "NBO:SEA" +
+        "NBO:CON"
+        )
         .indexOf(script.substring(0, 7).toUpperCase()));
   }
 
   public static String READER_NOT_FOUND = "File reader was not found:";
+
+  public static boolean checkFlag(int flags, int flag) {
+    return (flags & flag) == flag;
+  }
+
+
+  public final static int UNITID_MODEL = 1;
+  public final static int UNITID_RESIDUE = 2;
+  public final static int UNITID_ATOM = 4;
+  public final static int UNITID_INSCODE = 8;
+  public final static int UNITID_TRIM = 16;
+  
+  /**
+   * Get a unitID type
+   * 
+   * @param type -mra (model name, residue, atom, and ins code), 
+   *             -mr (model and residue; no atom)
+   *             -ra default
+   *             - or -r  just residue 
+   *             -t right-trim
+   *             
+   * @return coded type
+   */
+  public static int getUnitIDFlags(String type) {
+    int i = UNITID_RESIDUE | UNITID_ATOM | UNITID_INSCODE;
+    if (type.indexOf("-") == 0) {
+      if (type.indexOf("m") > 0)
+        i |= UNITID_MODEL;
+      if (type.indexOf("a") < 0)
+        i ^= UNITID_ATOM;
+      if (type.indexOf("t") > 0)
+        i |= UNITID_TRIM;
+    }
+    return i;
+  }
 
 }

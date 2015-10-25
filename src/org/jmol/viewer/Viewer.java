@@ -1,4 +1,4 @@
-  /* $RCSfile$
+/* $RCSfile$
  * $Author: hansonr $
  * $Date: 2014-02-02 22:24:37 -0600 (Sun, 02 Feb 2014) $
  * $Revision: 19253 $
@@ -45,6 +45,7 @@ import javajs.awt.Dimension;
 import javajs.awt.Font;
 import javajs.util.CU;
 import javajs.util.DF;
+import javajs.util.JSJSONParser;
 import javajs.util.Lst;
 import javajs.util.M3;
 import javajs.util.M4;
@@ -517,6 +518,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     tm = TransformManager.getTransformManager(this, Integer.MAX_VALUE, 0, is4D);
     slm = new SelectionManager(this);
     if (haveDisplay) {
+      // must have language by now, as ActionManager uses GT._()
       acm = (multiTouch ? (ActionManager) Interface.getOption(
           "multitouch.ActionManagerMT", null, null) : new ActionManager());
       acm.setViewer(this,
@@ -575,6 +577,10 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       } else if (!isJS) {
         logFilePath = null;
       }
+      new GT(this, (String) info.get("language"));
+      // deferred here so that language is set
+      if (isJS)
+        acm.createActions();
     } else {
       // not an applet -- used to pass along command line options
       gdata
@@ -636,6 +642,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       getScriptManager();
     zap(false, true, false); // here to allow echos
     g.setO("language", GT.getLanguage());
+    g.setO("_hoverLabel", hoverLabel);
     stm.setJmolDefaults();
     // this code will be shared between Jmol 14.0 and 14.1
     Elements.covalentVersion = Elements.RAD_COV_BODR_2014_02_22;
@@ -1361,6 +1368,8 @@ public class Viewer extends JmolViewer implements AtomDataServer,
   private void clearAtomSets() {
     slm.setSelectionSubset(null);
     definedAtomSets.clear();
+    if (haveDisplay)
+      acm.exitMeasurementMode("clearAtomSets");
   }
 
   public BS getDefinedAtomSet(String name) {
@@ -1454,7 +1463,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
 
   @Override
   public BufferedInputStream getBufferedInputStream(String fullPathName) {
-    // used by some JVXL readers
+    // used by some JVXL readers, also OutputManager.writeZipFile and ScriptManager.openFileAsync
     return fm.getBufferedInputStream(fullPathName);
   }
 
@@ -1652,6 +1661,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       htParams.put("concatenate", Boolean.TRUE);
     Object atomSetCollection;
     String[] saveInfo = fm.getFileInfo();
+    
     if (fileNames != null) {
 
       // 1) a set of file names
@@ -1875,7 +1885,9 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     if (haveFileData) {
       strModel = (String) htParams.get("fileData");
       if (htParams.containsKey("isData")) {
-        return loadInlineScript(strModel, '\0', isAppend, htParams);
+        Object o = loadInlineScript(strModel, '\0', isAppend, htParams);
+        lastData = (g.preserveState ? getDataManager().createFileData(strModel) : null);
+        return o;
       }
     } else if (isString) {
       strModel = ms.getInlineData(-1);
@@ -1983,7 +1995,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     // loadInline
     if (arrayModels == null || arrayModels.length == 0)
       return null;
-    String ret = openStringsInlineParamsAppend(arrayModels, null, isAppend);
+    String ret = openStringsInlineParamsAppend(arrayModels, new Hashtable<String, Object>(), isAppend);
     refresh(1, "loadInline String[]");
     return ret;
   }
@@ -2011,7 +2023,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     Object atomSetCollection = fm.createAtomSeCollectionFromArrayData(list,
         setLoadParameters(null, isAppend), isAppend);
     String ret = createModelSetAndReturnError(atomSetCollection, isAppend,
-        null, null);
+        null, new Hashtable<String, Object>());
     refresh(1, "loadInline");
     return ret;
   }
@@ -2121,7 +2133,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     Object atomSetCollection = fm.createAtomSetCollectionFromString(strModel,
         htParams, isAppend);
     return createModelSetAndReturnError(atomSetCollection, isAppend,
-        loadScript, null);
+        loadScript, htParams);
   }
 
   /**
@@ -2143,7 +2155,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         arrayModels, loadScript, setLoadParameters(htParams, isAppend),
         isAppend);
     return createModelSetAndReturnError(atomSetCollection, isAppend,
-        loadScript, null);
+        loadScript, htParams);
   }
 
   public char getInlineChar() {
@@ -2206,7 +2218,8 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         String jmolScript = (String) ms.getInfoM("jmolscript");
         if (ms.getMSInfoB("doMinimize"))
           try {
-            minimize((JmolScriptEvaluator) htParams.get("eval"),
+            JmolScriptEvaluator eval = (JmolScriptEvaluator) htParams.get("eval");
+            minimize(eval,
                 Integer.MAX_VALUE, 0, bsNew, null, 0, true, true, true, true);
           } catch (Exception e) {
             // TODO
@@ -2234,7 +2247,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     errMsg = getErrorMessage();
 
     setFileLoadStatus(FIL.CREATED, fullPathName, fileName, ms.modelSetName,
-        errMsg, htParams == null ? null : (Boolean) htParams.get("async"));
+        errMsg, (Boolean) htParams.get("async"));
     if (isAppend) {
       selectAll();
       setTainted(true);
@@ -2393,11 +2406,14 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         g.dsspCalcHydrogen, setStructure);
   }
 
-  private JmolAnnotationParser annotationParser;
+  private JmolAnnotationParser annotationParser, dssrParser;
 
-  public JmolAnnotationParser getAnnotationParser() {
-    return (annotationParser == null ? (annotationParser = (JmolAnnotationParser) Interface
-        .getOption("dssx.AnnotationParser", this, "script")) : annotationParser);
+  public JmolAnnotationParser getAnnotationParser(boolean isDSSR) {
+    return (isDSSR ? (dssrParser == null ? (dssrParser = (JmolAnnotationParser) Interface
+        .getOption("dssx.DSSR1", this, "script")) : dssrParser)
+        : (annotationParser == null ? (annotationParser = (JmolAnnotationParser) Interface
+            .getOption("dssx.AnnotationParser", this, "script"))
+            : annotationParser));
   }
 
   @Override
@@ -2543,7 +2559,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     rotatePrev1 = rotateBondIndex = -1;
     movingSelected = false;
     slm.noneSelected = Boolean.FALSE;
-    hoverEnabled = true;
+    setHoverEnabled(true);
     setSelectionHalosEnabled(false);
     tm.setCenter();
     am.initializePointers(1);
@@ -2561,7 +2577,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
 
   public void startHoverWatcher(boolean tf) {
     if (tf && inMotion || !haveDisplay || tf
-        && (!hoverEnabled || am.animationOn))
+        && (!hoverEnabled && !sm.haveHoverCallback() || am.animationOn))
       return;
     acm.startHoverWatcher(tf);
   }
@@ -2975,9 +2991,9 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         : getDataManager().getData(key, bsSelected, dataType));
   }
 
-  public float getDataFloatAt(String label, int atomIndex) {
-    return getDataManager().getDataFloatAt(label, atomIndex);
-  }
+//  public float getDataFloatAt(String label, int atomIndex) {
+//    return getDataManager().getDataFloatAt(label, atomIndex);
+//  }
 
   // boolean autoLoadOrientation() {
   // return true;//global.autoLoadOrientation; 12.0.RC10
@@ -3558,7 +3574,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
   private boolean updateWindow(int width, int height) {
     //System.out.println("Viewer updateWindow " + width + " " + height);
     if (!refreshing || creatingImage)
-      return false;
+      return (refreshing ? false : !isJS);
     if (isTainted || tm.slabEnabled)
       setModelVisibility();
     isTainted = false;
@@ -3869,16 +3885,16 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     return fileName;
   }
 
+  public static boolean hasDatabasePrefix(String fileName) {
+    return (fileName.length() != 0 && isDatabaseCode(fileName.charAt(0)));
+  }
+
   public static boolean isDatabaseCode(char ch) {
     return (ch == '*' // PDBE
         || ch == '$' // NCI resolver
         || ch == '=' // RCSB model or ligand
     || ch == ':' // PubChem
     );
-  }
-
-  public static boolean hasDatabasePrefix(String fileName) {
-    return (fileName.length() != 0 && isDatabaseCode(fileName.charAt(0)));
   }
 
   /**
@@ -3921,7 +3937,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       // European Bioinformatics Institute
       int pt = name.lastIndexOf("/");
       if (name.startsWith("*dom/")) {
-        //  *ann/.../.../.../xxxx
+        //  *dom/.../.../.../xxxx
         f = name.substring(pt + 1);
         format = (pt > 4 ? name.substring(5) : "mappings");
         return PT.rep(g.resolveDataBase("map", f), "%TYPE", format);
@@ -3931,13 +3947,16 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         format = (pt > 4 ? name.substring(5) : "validation/outliers/all");
         return PT.rep(g.resolveDataBase("map", f), "%TYPE", format);
       } else if (name.startsWith("*rna3d/")) {
-        //  *val/.../.../.../xxxx
+        //  *rna3d/.../.../.../xxxx
         f = name.substring(pt + 1);
         format = (pt > 6 ? name.substring(6) : "loops");
         return PT.rep(g.resolveDataBase("rna3d", f), "%TYPE", format);
       } else if (name.startsWith("*dssr/")) {
         f = name.substring(pt + 1);
         return g.resolveDataBase("dssr", f);
+      } else if (name.startsWith("*dssr1/")) {
+        f = name.substring(pt + 1);
+        return g.resolveDataBase("dssr1", f);
       }
       // these are processed in SmarterJmolAdapter
       String pdbe = "pdbe";
@@ -4077,16 +4096,22 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     setShapeSize(JC.SHAPE_STICKS, marBond * 2, BSUtil.setAll(ms.ac));
   }
 
-  int hoverAtomIndex = -1;
-  String hoverText;
-  public boolean hoverEnabled = true;
+  private int hoverAtomIndex = -1;
+  private String hoverText, hoverLabel = "%U";
+  private boolean hoverEnabled = true;
 
   public void setHoverLabel(String strLabel) {
     shm.loadShape(JC.SHAPE_HOVER);
     setShapeProperty(JC.SHAPE_HOVER, "label", strLabel);
-    hoverEnabled = (strLabel != null);
+    setHoverEnabled(strLabel != null);
+    g.setO("_hoverLabel", hoverLabel = strLabel);
     if (!hoverEnabled && !sm.haveHoverCallback())
       startHoverWatcher(false);
+  }
+  
+  private void setHoverEnabled(boolean tf) {
+    hoverEnabled = tf;
+    g.setB("_hoverEnabled", tf);
   }
 
   /*
@@ -4104,6 +4129,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
   void hoverOn(int atomIndex, boolean isLabel) {
     g.removeParam("_objecthovered");
     g.setI("_atomhovered", atomIndex);
+    g.setO("_hoverLabel", hoverLabel);
     g.setUserVariable("hovered", SV.getVariable(BSUtil.newAndSetBit(atomIndex)));
     if (sm.haveHoverCallback())
       sm.setStatusAtomHovered(atomIndex, getAtomInfoXYZ(atomIndex, false));
@@ -4136,6 +4162,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     // from draw for drawhover on
     if (eval != null && isScriptExecuting())
       return;
+    g.setO("_hoverLabel", hoverLabel);
     if (id != null && pt != null) {
       g.setO("_objecthovered", id);
       g.setI("_atomhovered", -1);
@@ -6644,6 +6671,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       return g.testFlag2;
     case 3:
       // isosurface numbers
+      // polyhedra numbers
       return g.testFlag3;
     case 4:
       // isosurface normals
@@ -7844,9 +7872,9 @@ public class Viewer extends JmolViewer implements AtomDataServer,
     return getOutputManager().processWriteOrCapture(params);
   }
 
-  public String createZip(String fileName, String type, Object data) {
-    Map<String, Object> params = new Hashtable<String, Object>();
-    params.put("fileName", fileName); // could be null here!
+  public Object createZip(String fileName, String type, Map<String, Object> params) {
+    Object data = params.get("data");
+    params.put("fileName", fileName);
     params.put("type", type);
     params.put("text", getStateInfo());
     if (data instanceof String[])
@@ -8424,7 +8452,8 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       getMinimizer(true).minimize(steps, crit, bsSelected, bsMotionFixed,
           haveFixed, isSilent, ff);
     } catch (JmolAsyncException e) {
-      eval.loadFileResourceAsync(e.getFileName());
+      if (eval != null)
+        eval.loadFileResourceAsync(e.getFileName());
     } catch (Exception e) {
       Logger.error("Minimization error: " + e.toString());
       if (!isJS)
@@ -8625,7 +8654,15 @@ public class Viewer extends JmolViewer implements AtomDataServer,
 
   @Override
   public String getSmiles(BS bs) throws Exception {
-    return getSmilesOpt(bs, -1, -1, 0);
+    return getSmilesOpt(bs, -1, -1, Logger.debugging ? JC.SMILES_ATOM_COMMENT : 0);
+  }
+
+  public String getBioSmiles(BS bs) throws Exception {
+    return getSmilesOpt(bs, -1, -1,  
+          JC.SMILES_BIO_ALLOW_UNMATCHED_RINGS
+        | JC.SMILES_BIO_COV_CROSSLINK
+        | JC.SMILES_BIO_COMMENT
+        | (Logger.debugging ? JC.SMILES_ATOM_COMMENT : 0));
   }
 
   /**
@@ -8847,6 +8884,11 @@ public class Viewer extends JmolViewer implements AtomDataServer,
   public void calculatePartialCharges(BS bsSelected) throws JmolAsyncException {
     if (bsSelected == null || bsSelected.cardinality() == 0)
       bsSelected = getModelUndeletedAtomsBitSetBs(getVisibleFramesBitSet());
+    int pt = bsSelected.nextSetBit(0);
+    if (pt < 0)
+      return;
+    // this forces an array if it does not exist 
+    setAtomProperty(BSUtil.newAndSetBit(pt), T.partialcharge, 0, 1f, null, null, null);
     getMinimizer(true).calculatePartialCharges(ms.bo, ms.bondCount, ms.at,
         bsSelected);
   }
@@ -9051,11 +9093,6 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       return slm.excludeAtoms((BS) atomExpression, false);
     getScriptManager();
     return getAtomBitSetEval(eval, atomExpression);
-  }
-
-  Lst<Integer> getAtomBitSetVector(Object atomExpression) {
-    return (getScriptManager() == null ? null : eval.getAtomBitSetVector(ms.ac,
-        atomExpression));
   }
 
   public ScriptContext getScriptContext(String why) {
@@ -9280,12 +9317,12 @@ public class Viewer extends JmolViewer implements AtomDataServer,
   }
 
   public String getAnnotationInfo(SV d, String match, int type) {
-    return getAnnotationParser()
+    return getAnnotationParser(type == T.dssr)
         .getAnnotationInfo(this, d, match, type, am.cmi);
   }
 
   public Lst<Float> getAtomValidation(String type, Atom atom) {
-    return getAnnotationParser().getAtomValidation(this, type, atom);
+    return getAnnotationParser(false).getAtomValidation(this, type, atom);
   }
 
   private GenericZipTools jzt;
@@ -9330,7 +9367,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       jmolpopup.jpiUpdateComputedMenus();
   }
 
-  JmolChimeMessenger jcm;
+  private JmolChimeMessenger jcm;
 
   public JmolChimeMessenger getChimeMessenger() {
     return (jcm == null ? jcm = ((JmolChimeMessenger) Interface.getInterface(
@@ -9342,4 +9379,11 @@ public class Viewer extends JmolViewer implements AtomDataServer,
         false));
   }
 
+  private JSJSONParser jsonParser;
+  
+  public Map<String, Object> parseJSON(String ann) {
+    if (jsonParser == null)
+      jsonParser = ((JSJSONParser) Interface.getInterface("javajs.util.JSJSONParser", this, "script"));
+    return jsonParser.parseMap(ann, true);
+  }
 }

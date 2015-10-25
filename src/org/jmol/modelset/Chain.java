@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-04-22 17:08:40 -0500 (Wed, 22 Apr 2015) $
- * $Revision: 20452 $
+ * $Date: 2015-08-30 00:02:26 -0500 (Sun, 30 Aug 2015) $
+ * $Revision: 20741 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -31,7 +31,7 @@ import org.jmol.java.BS;
  * particularly whether this monomer is RNA or DNA.
  * 
  */
-public final class Chain {
+public final class Chain implements Structure {
 
   public Model model;
   /**
@@ -59,12 +59,6 @@ public final class Chain {
    * so that the range is appropriate for each chain.
    */
   public int selectedGroupCount;
-
-  /**
-   * set when a Monomer is constructed, and tested widely 
-   */
-  public boolean isDna, isRna;
-  
 
   Chain(Model model, int chainID, int chainNo) {
     this.model = model;
@@ -102,6 +96,11 @@ public final class Chain {
   public void setAtomBits(BS bs) {
     for (int i = 0; i < groupCount; i++)
       groups[i].setAtomBits(bs);
+  }
+
+  public void setAtomBitsAndClear(BS bs, BS bsOut) {
+    for (int i = 0; i < groupCount; i++)
+      groups[i].setAtomBitsAndClear(bs, bsOut);
   }
 
 }

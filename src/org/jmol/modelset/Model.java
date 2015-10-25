@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-07-29 06:14:56 -0500 (Wed, 29 Jul 2015) $
- * $Revision: 20664 $
+ * $Date: 2015-09-19 19:35:13 -0500 (Sat, 19 Sep 2015) $
+ * $Revision: 20778 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -134,6 +134,8 @@ public class Model {
 
   String jmolData; // from a PDB remark "Jmol PDB-encoded data"
   String jmolFrameType;
+
+  public String pdbID;
 
   public Model() {
     

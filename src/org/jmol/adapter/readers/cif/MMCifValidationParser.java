@@ -10,6 +10,7 @@ import org.jmol.adapter.smarter.Atom;
 import org.jmol.adapter.smarter.AtomSetCollectionReader;
 import org.jmol.script.SV;
 import org.jmol.util.Logger;
+import org.jmol.viewer.Viewer;
 
 public class MMCifValidationParser {
 
@@ -31,11 +32,17 @@ public class MMCifValidationParser {
 
   /**
    * Create property_xxxx for each validation category.
+   * @param vwr 
    * @param modelMap 
    * @return loading note
    * 
    */
-  public String finalizeValidations(Map<String, Integer> modelMap) {
+  public String finalizeValidations(Viewer vwr, Map<String, Integer> modelMap) {
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> map = (Map<String, Object>) reader.dssr;
+    if (map != null)
+      return vwr.getAnnotationParser(true).fixDSSRJSONMap(map);
 
     mapAtomResIDs(modelMap);
 
@@ -43,7 +50,7 @@ public class MMCifValidationParser {
     // name(String), data(float[]), modelIndex (Integer), isGroup (Boolean);
 
     SV svMap = (SV) reader.validation;
-    Lst<Object> retProps = reader.vwr.getAnnotationParser().catalogValidations(
+    Lst<Object> retProps = reader.vwr.getAnnotationParser(false).catalogValidations(
         reader.vwr, svMap, getModelAtomIndices(), resMap,
         (asResidues ? null : atomMap), modelMap);
 
@@ -57,7 +64,7 @@ public class MMCifValidationParser {
     mapAtomResIDs(modelMap);
     SV svMap = getRna3dMap(reader.addedData);
     
-    String note = reader.vwr.getAnnotationParser().catalogStructureUnits(
+    String note = reader.vwr.getAnnotationParser(false).catalogStructureUnits(
         reader.vwr, svMap, getModelAtomIndices(), resMap, null, modelMap);
     svMap.mapPut("_note", SV.newS(note));
     for (int i = reader.asc.atomSetCount; --i >= 0;) {
@@ -66,6 +73,7 @@ public class MMCifValidationParser {
     }
     return note;
   }
+  
   private SV getRna3dMap(String addedData) {
     Map<String, Lst<Map<String, Object>>> map = new Hashtable<String, Lst<Map<String, Object>>>();
     int[] next = new int[1];
@@ -187,7 +195,6 @@ public class MMCifValidationParser {
     }
     return note;
   }
-
 
 
 }

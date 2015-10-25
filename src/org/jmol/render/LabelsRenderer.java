@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-14 09:43:22 -0500 (Fri, 14 Aug 2015) $
- * $Revision: 20698 $
+ * $Date: 2015-09-19 19:35:13 -0500 (Sat, 19 Sep 2015) $
+ * $Revision: 20778 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -172,7 +172,7 @@ public class LabelsRenderer extends FontLineShapeRenderer {
         text.colix = labelColix;
         text.bgcolix = bgcolix;
       } else {
-        if (text.pymolOffset[0] == 1)
+        if (Math.abs(text.pymolOffset[0]) == 1)
           pTemp.setT(atomPt);
         else
           pTemp.set(0, 0, 0);
@@ -195,7 +195,7 @@ public class LabelsRenderer extends FontLineShapeRenderer {
       }
       boolean isSimple = isLeft
           && (imageFontScaling == 1 && scalePixelsPerMicron == 0
-              && label.indexOf("|") < 0 && label.indexOf("<su") < 0 && label
+              && label.indexOf("|") < 0 && label.indexOf("\n") < 0 && label.indexOf("<su") < 0 && label
               .indexOf("<co") < 0);
       if (isSimple) {
         boolean doPointer = ((pointer & JC.LABEL_POINTER_ON) != 0);

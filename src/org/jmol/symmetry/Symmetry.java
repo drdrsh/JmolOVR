@@ -130,7 +130,7 @@ public class Symmetry implements SymmetryInterface {
   @Override
   public void setSpaceGroup(boolean doNormalize) {
     if (spaceGroup == null)
-      spaceGroup = (SpaceGroup.getNull(true)).set(doNormalize);
+      spaceGroup = SpaceGroup.getNull(true, doNormalize, false);
   }
 
   @Override
@@ -160,11 +160,18 @@ public class Symmetry implements SymmetryInterface {
     spaceGroup = (SpaceGroup) symmetry.getSpaceGroup();
   }
 
+  /**
+   * 
+   * @param desiredSpaceGroupIndex
+   * @param name
+   * @param data a Lst<SymmetryOperation> or Lst<M4> 
+   * @return true if a known space group
+   */
   @Override
   public boolean createSpaceGroup(int desiredSpaceGroupIndex, String name,
-                                  Object object) {
+                                  Object data) {
     spaceGroup = SpaceGroup.createSpaceGroup(desiredSpaceGroupIndex, name,
-        object);
+        data);
     if (spaceGroup != null && Logger.debugging)
       Logger.debug("using generated space group " + spaceGroup.dumpInfo(null));
     return spaceGroup != null;
@@ -311,18 +318,21 @@ public class Symmetry implements SymmetryInterface {
 
   @Override
   public int[] getCellRange() {
-    return symmetryInfo.cellRange;
+    return symmetryInfo == null ? null : symmetryInfo.cellRange;
   }
 
   @Override
   public String getSymmetryInfoStr() {
-    return symmetryInfo.infoStr;
+    return (symmetryInfo == null ? "" : symmetryInfo.infoStr);
   }
 
   @Override
   public M4[] getSymmetryOperations() {
-    return symmetryInfo == null ? spaceGroup.finalOperations
-        : symmetryInfo.symmetryOperations;
+    if (symmetryInfo != null)
+      return symmetryInfo.symmetryOperations;
+    if (spaceGroup == null)
+      spaceGroup = SpaceGroup.getNull(true, false, true);
+    return spaceGroup.finalOperations;
   }
 
   @Override
@@ -521,7 +531,7 @@ public class Symmetry implements SymmetryInterface {
   }
 
   @Override
-  public V3[] getUnitCellVectors() {
+  public P3[] getUnitCellVectors() {
     return unitCell.getUnitCellVectors();
   }
 

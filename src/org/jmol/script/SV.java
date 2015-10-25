@@ -25,12 +25,12 @@
 package org.jmol.script;
 
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Set;
+import java.util.Map.Entry;
 
 
 import org.jmol.java.BS;
@@ -66,7 +66,7 @@ import javajs.util.V3;
 public class SV extends T implements JSONEncodable {
 
   public final static SV vT = newSV(on, 1, "true");
-  final private static SV vF = newSV(off, 0, "false");
+  public final static SV vF = newSV(off, 0, "false");
 
   public int index = Integer.MAX_VALUE;    
 
@@ -502,12 +502,11 @@ public class SV extends T implements JSONEncodable {
   }
 
   // there are reasons to use Token here rather than ScriptVariable
-  // some of these functions, in particular iValue, fValue, and sValue
+  // for some of these functions, in particular iValue, fValue, and sValue
   
   public static boolean bValue(T x) {
     switch (x == null ? nada : x.tok) {
     case on:
-    case hash:
     case context:
       return true;
     case off:
@@ -526,6 +525,8 @@ public class SV extends T implements JSONEncodable {
     case matrix3f:
     case matrix4f:
       return Math.abs(fValue(x)) > 0.0001f;
+    case hash:
+      return !((SV) x).getMap().isEmpty();
     default:
       return false;
     }
@@ -646,17 +647,18 @@ public class SV extends T implements JSONEncodable {
   }
 
   private static void sValueArray(SB sb, SV vx, String path, String tabs,
-                                  boolean isEscaped, boolean isRaw, boolean addValues, int maxLevels, boolean skipEmpty) {
-    if (vx == null)
-      System.out.println("hoho");
+                                  boolean isEscaped, boolean isRaw,
+                                  boolean addValues, int maxLevels,
+                                  boolean skipEmpty) {
     switch (vx.tok) {
     case hash:
     case context:
     case varray:
       String thiskey = ";" + vx.hashCode() + ";";
       if (path.indexOf(thiskey) >= 0) {
-        sb.append(isEscaped ? "{}" : vx.myName == null ? "\0\"<circular reference>\""
-            : "<" + vx.myName + ">");
+        sb.append(isEscaped ? (vx.tok == varray ? "[ ]" : "{ }") 
+            : (vx.tok == varray ? "" : "\0") + "\"<"
+            + (vx.myName == null ? "circular reference" : vx.myName) + ">\"");
         break;
       }
       path += thiskey;
@@ -670,16 +672,18 @@ public class SV extends T implements JSONEncodable {
           if (isEscaped && i > 0)
             sb.append(",");
           SV sv = sx.get(i);
-          sValueArray(sb, sv, path, tabs + "  ", isEscaped, tabs.length() == 0 && !isEscaped && isRawType(sv.tok), addValues, maxLevels, skipEmpty);
+          sValueArray(sb, sv, path, tabs + "  ", isEscaped, tabs.length() == 0
+              && !isEscaped && isRawType(sv.tok), addValues, maxLevels,
+              skipEmpty);
           if (!isEscaped)
             sb.append("\n");
         }
         if (!isRaw)
           sb.append(isEscaped ? " ]" : tabs + "]");
-      } else if (--maxLevels >= 0){
+      } else if (--maxLevels >= 0) {
         Map<String, SV> ht = (vx.tok == context ? ((ScriptContext) vx.value)
             .getFullMap() : vx.getMap());
-        addKeys(sb, path, ht, tabs, isEscaped, addValues, maxLevels, skipEmpty);
+        sValueAddKeys(sb, path, ht, tabs, isEscaped, addValues, maxLevels, skipEmpty);
       }
       break;
     default:
@@ -691,7 +695,7 @@ public class SV extends T implements JSONEncodable {
     }
   }
   
-  private static void addKeys(SB sb, String path, Map<String, SV> ht, String tabs, boolean isEscaped, boolean addValues, int maxLevels, boolean skipEmpty) {
+  private static void sValueAddKeys(SB sb, String path, Map<String, SV> ht, String tabs, boolean isEscaped, boolean addValues, int maxLevels, boolean skipEmpty) {
     if (maxLevels < 0)
       return;
     Set<String> keyset = ht.keySet();
@@ -703,8 +707,8 @@ public class SV extends T implements JSONEncodable {
       for (int i = 0; i < keys.length; i++) {
         String key = keys[i];
         SV val = ht.get(key);
-        if (skipEmpty && (val.tok == T.varray && val.getList().size() == 0
-            || val.tok == T.hash && val.getMap().isEmpty()))
+        if (skipEmpty && (val.tok == varray && val.getList().size() == 0
+            || val.tok == hash && val.getMap().isEmpty()))
           continue;
         if (addValues)
           sb.append(sep).append(PT.esc(key)).append(":");
@@ -741,15 +745,15 @@ public class SV extends T implements JSONEncodable {
 
   private static boolean isRawType(int tok) {
     switch (tok) {
-    case T.string:
-    case T.decimal:
-    case T.integer:
-    case T.point3f:
-    case T.point4f:
-    case T.bitset:
-    case T.barray:
-    case T.on:
-    case T.off:
+    case string:
+    case decimal:
+    case integer:
+    case point3f:
+    case point4f:
+    case bitset:
+    case barray:
+    case on:
+    case off:
       return true;
     }
     return false;
@@ -1185,7 +1189,7 @@ public class SV extends T implements JSONEncodable {
 
   private static String sprintf(String strFormat, SV var, Object[] of, 
                                 int[] vd, float[] vf, double[] ve, boolean getS, boolean getP, boolean getQ) {
-    if (var.tok == T.hash) {
+    if (var.tok == hash) {
       int pt = strFormat.indexOf("[");
       if (pt >= 0) {
         int pt1;
@@ -1240,7 +1244,11 @@ public class SV extends T implements JSONEncodable {
         pt = getFormatType(args[0].asString());
       switch (pt) {
       case 0:
-        return args[1].toJSON();
+        String name = args[1].myName;
+        args[1].myName = null;
+        Object o = args[1].toJSON();
+        args[1].myName = name;
+        return o;
       case 5:
       case 12:
       case 22:
@@ -1281,8 +1289,8 @@ public class SV extends T implements JSONEncodable {
     sb.append(format[0]);
     for (int i = 1; i < format.length; i++) {
       Object ret = sprintf(PT.formatCheck("%" + format[i]),
-          (args[1].tok == T.hash ? args[1] 
-              : args[1].tok == T.varray ? args[1].getList().get(i - 1)
+          (args[1].tok == hash ? args[1] 
+              : args[1].tok == varray ? args[1].getList().get(i - 1)
                   : i < args.length ? args[i] :  null));
       if (AU.isAS(ret)) {
         String[] list = (String[]) ret;
@@ -1295,21 +1303,25 @@ public class SV extends T implements JSONEncodable {
     return sb.toString();
   }
   
-  @SuppressWarnings("unchecked")
   public static BS getBitSet(SV x, boolean allowNull) {
     switch (x.tok) {
     case bitset:
       return bsSelectVar(x);
     case varray:
-      BS bs = new BS();
-      Lst<SV> sv = (Lst<SV>) x.value;
-      for (int i = 0; i < sv.size(); i++)
-        if (!sv.get(i).unEscapeBitSetArray(bs) && allowNull)
-          return null;
-      return bs;
+      return unEscapeBitSetArray(x.getList(), allowNull);
+    default:
+      return (allowNull ? null : new BS());
     }
-    return (allowNull ? null : new BS());
   }
+
+  static BS unEscapeBitSetArray(Lst<SV> x, boolean allowNull) {
+    BS bs = new BS();
+    for (int i = 0; i < x.size(); i++)
+      if (!unEscapeBitSet(x.get(i), bs))
+        return (allowNull ? null : bs);
+    return bs;
+  }
+
 
   /**
    * For legacy reasons, "x" == "X" but see isLike()
@@ -1358,16 +1370,18 @@ public class SV extends T implements JSONEncodable {
 
   protected class Sort implements Comparator<SV> {
     private int arrayPt;
+    private String myKey;
     
-    protected Sort(int arrayPt) {
+    protected Sort(int arrayPt, String myKey) {
       this.arrayPt = arrayPt;
+      this.myKey = myKey;
     }
     
     @Override
     public int compare(SV x, SV y) {
       if (x.tok != y.tok) {
-        if (x.tok == decimal || x.tok == integer
-            || y.tok == decimal || y.tok == integer) {
+        if (x.tok == decimal || x.tok == integer || y.tok == decimal
+            || y.tok == integer) {
           float fx = fValue(x);
           float fy = fValue(y);
           return (fx < fy ? -1 : fx > fy ? 1 : 0);
@@ -1389,6 +1403,11 @@ public class SV extends T implements JSONEncodable {
         if (iPt < 0 || iPt >= sx.size())
           return 0;
         return compare(sx.get(iPt), sy.get(iPt));
+      case hash:
+        if (myKey != null) {
+          return compare(x.getMap().get(myKey), y.getMap().get(myKey));
+        }
+        //$FALL-THROUGH$
       default:
         float fx = fValue(x);
         float fy = fValue(y);
@@ -1415,7 +1434,7 @@ public class SV extends T implements JSONEncodable {
           x.set(n, v);
         }
       } else {
-        Collections.sort(getList(), new Sort(--arrayPt));
+        Collections.sort(getList(), new Sort(--arrayPt, null));
       }
     }
     return this;
@@ -1452,27 +1471,26 @@ public class SV extends T implements JSONEncodable {
     return this;
   }
 
-  boolean unEscapeBitSetArray(BS bs) {
-    switch(tok) {
+  /**
+   * Turn the string "({3:5})" into a bitset
+   * @param x 
+   * 
+   * @param bs
+   * @return a bitset or a string converted to one
+   */
+  private static boolean unEscapeBitSet(SV x, BS bs) {
+    switch(x.tok) {
     case string:
-      BS bs1 = BS.unescape((String) value);
+      BS bs1 = BS.unescape((String) x.value);
       if (bs1 == null)
         return false;
       bs.or(bs1);
       return true;
     case bitset:
-      bs.or((BS) value);
+      bs.or((BS) x.value);
       return true;
     }
     return false;   
-  }
-
-  static BS unEscapeBitSetArray(ArrayList<SV> x, boolean allowNull) {
-    BS bs = new BS();
-    for (int i = 0; i < x.size(); i++)
-      if (!x.get(i).unEscapeBitSetArray(bs) && allowNull)
-        return null;
-    return bs;
   }
 
   public static String[] strListValue(T x) {
@@ -1519,8 +1537,9 @@ public class SV extends T implements JSONEncodable {
     return list;
   }
 
-  public void toArray() {
+  public SV toArray() {
     int dim;
+    Lst<SV> o2;
     M3 m3 = null;
     M4 m4 = null;
     switch (tok) {
@@ -1532,11 +1551,14 @@ public class SV extends T implements JSONEncodable {
       m4 = (M4) value;
       dim = 4;
       break;
+    case varray:
+      return this;
     default:
-      return;
+      o2 = new Lst<SV>();
+      o2.addLast(this);
+      return newV(varray, o2);
     }
-    tok = varray;
-    Lst<SV> o2 = new  Lst<SV>(); //dim;
+    o2 = new  Lst<SV>();
     for (int i = 0; i < dim; i++) {
       float[] a = new float[dim];
       if (m3 == null)
@@ -1545,7 +1567,7 @@ public class SV extends T implements JSONEncodable {
         m3.getRow(i, a);
       o2.addLast(getVariableAF(a));
     }
-    value = o2;
+    return newV(varray, o2);
   }
 
   @SuppressWarnings("unchecked")
@@ -1588,8 +1610,18 @@ public class SV extends T implements JSONEncodable {
       return PT.byteArrayToJSON(((BArray) value).data);
     case context:
       return PT.toJSON(null, ((ScriptContext) value).getFullMap());
+    case varray:
+    case hash:
+      if (myName != null) {
+        myName = null;
+        return (tok == hash ? "{  }" : "[  ]");
+      }
+      myName = "x";
+      String s = PT.toJSON(null, value);
+      myName = null;
+      return s;
     default:
-     return PT.toJSON(null, value);
+      return PT.toJSON(null, value);
     }
   }
 
@@ -1625,4 +1657,102 @@ public class SV extends T implements JSONEncodable {
     return toString2() + "[" + myName + " index =" + index + " intValue=" + intValue + "]";
   }
 
+  public String[] getKeys(boolean isAll) {
+    switch (tok) {
+    case hash:
+    case context:
+    case varray:
+      break;
+    default:
+      return null;
+    }
+    Lst<String> keys = new Lst<String>();
+    getKeyList(isAll, keys, "");
+    String[] skeys = keys.toArray(new String[keys.size()]);
+    Arrays.sort(skeys);
+    return skeys;
+  }
+
+  private void getKeyList(boolean isAll, Lst<String> keys, String prefix) {
+    Map<String, SV> map = getMap();
+    if (map == null) {
+      if (isAll) {
+        Lst<SV> lst;
+        int n;
+        if ((lst = getList()) != null && (n = lst.size()) > 0)
+          lst.get(n - 1).getKeyList(true, keys, prefix + n + ".");
+      }
+      return;
+    }
+    for(Entry<String, SV> e: map.entrySet()) {
+      String k = e.getKey();
+      if (isAll && (k.length() == 0 || !PT.isLetter(k.charAt(0)))) {
+        if (prefix.endsWith("."))
+          prefix = prefix.substring(0, prefix.length() - 1);
+        k = "[" + PT.esc(k) + "]";
+      }
+      keys.addLast(prefix + k);
+      if (isAll)
+        e.getValue().getKeyList(true, keys, prefix + k + ".");
+    }
+  }
+
+  /**
+   * Copies a hash or array deeply; invoked by Jmol script
+   * 
+   * x = @a
+   * 
+   * where a.type == "hash" or a.type == "varray"
+   * 
+   * 
+   * @param v hash or array
+   * @param isHash
+   * @param isDeep TODO
+   * @return deeply copied variable
+   */
+  @SuppressWarnings("unchecked")
+  public static Object deepCopy(Object v, boolean isHash, boolean isDeep) {
+    if (isHash) {
+      Map<String, SV> vold = (Map<String, SV>) v;
+      Map<String, SV> vnew = new Hashtable<String, SV>();
+      for (Entry<String, SV> e : vold.entrySet()) {
+        SV v1 = e.getValue();
+        vnew.put(e.getKey(), isDeep ? deepCopySV(v1) : v1);
+      }
+      return vnew; 
+    }
+    Lst<SV> vold2 = (Lst<SV>) v;
+    Lst<SV> vnew2 = new Lst<SV>();
+    for (int i = 0, n = vold2.size(); i < n; i++) {
+      SV vm = vold2.get(i);
+      vnew2.addLast(isDeep ? deepCopySV(vm) : vm);
+    }
+    return vnew2;
+  }
+
+  private static SV deepCopySV(SV vm) {
+    switch (vm.tok) {
+    case hash:
+    case varray:
+      if (vm.myName != null) {
+        vm.myName = null;
+        vm = SV.newV(vm.tok, (vm.tok == hash ? new Hashtable<String, SV>() : new Lst<SV>()));
+      } else {
+        vm.myName = "recursing";
+        SV vm0 = vm;
+        vm = newV(vm.tok, deepCopy(vm.value, vm.tok == hash, true));
+        vm0.myName = null;
+      }
+      break;
+    }
+    return vm;
+  }
+
+  public SV sortMapArray(String key) {
+    Lst<SV> lst = getList();
+    if (lst != null) {      
+      Collections.sort(getList(), new Sort(0, key));
+    }
+    return this;
+  }
 }

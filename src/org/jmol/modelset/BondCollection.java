@@ -478,15 +478,26 @@ abstract public class BondCollection extends AtomCollection {
     Bond bond;
     isAll = (bsBonds == null);
     i0 = (isAll ? bondCount - 1 : bsBonds.nextSetBit(0));
+    BS bsTest = new BS();
     for (int i = i0; i >= 0; i = (isAll ? i - 1 : bsBonds.nextSetBit(i + 1))) {
         bond = bo[i];
         if (!bond.is(Edge.BOND_AROMATIC)
             || bsAromaticDouble.get(i) || bsAromaticSingle.get(i))
           continue;
-        if (!assignAromaticDouble(bond))
-          assignAromaticSingle(bond);
-        System.out.println(bond + " "+ bond.order);
+        bsTest.set(i);
+        if (bond.atom1.getElementNumber() == 8 || bond.atom2.getElementNumber() == 8) {
+          if (!assignAromaticDouble(bond))
+            assignAromaticSingle(bond);
+        } else {
+          bsTest.set(i);
+        }
       }
+    // now test non-O atoms
+    for (int i = bsTest.nextSetBit(0); i >= 0; i = bsTest.nextSetBit(i + 1)) {
+      bond = bo[i];
+      if (!assignAromaticDouble(bond))
+        assignAromaticSingle(bond);
+    }
     // all done: do the actual assignments and clear arrays.
     for (int i = i0; i >= 0; i = (isAll ? i - 1 : bsBonds.nextSetBit(i + 1))) {
         bond = bo[i];
@@ -575,7 +586,7 @@ abstract public class BondCollection extends AtomCollection {
    */
   private boolean assignAromaticSingleForAtom(Atom atom, int notBondIndex) {
     Bond[] bonds = atom.bonds;
-    if (bonds == null || assignAromaticSingleHetero(atom))
+    if (bonds == null)// || assignAromaticMustBeSingle(atom))
       return false;
     for (int i = bonds.length; --i >= 0;) {
       Bond bond = bonds[i];
@@ -602,7 +613,7 @@ abstract public class BondCollection extends AtomCollection {
     Bond[] bonds = atom.bonds;
     if (bonds == null)
       return false;
-    boolean haveDouble = assignAromaticSingleHetero(atom);
+    boolean haveDouble = false;//assignAromaticMustBeSingle(atom);
     int lastBond = -1;
     for (int i = bonds.length; --i >= 0;) {
       if (bsAromaticDouble.get(bonds[i].index))
@@ -625,7 +636,20 @@ abstract public class BondCollection extends AtomCollection {
     return haveDouble;
   } 
   
-  private boolean assignAromaticSingleHetero(Atom atom) {
+  protected boolean allowAromaticBond(Bond b) {
+    if (assignAromaticMustBeSingle(b.atom1)
+        || assignAromaticMustBeSingle(b.atom2))
+      return false;
+    switch (b.getCovalentOrder()) {
+    case Edge.BOND_COVALENT_SINGLE:
+    case Edge.BOND_COVALENT_DOUBLE:
+      return b.atom1.getCovalentBondCount() <= 3 && b.atom2.getCovalentBondCount() <= 3;
+    default:
+      return false;
+    }
+  }
+  
+  private boolean assignAromaticMustBeSingle(Atom atom) {
     // only C N O S may be a problematic:
     int n = atom.getElementNumber();
     switch (n) {
@@ -642,10 +666,11 @@ abstract public class BondCollection extends AtomCollection {
     case 6: // C
       return (nAtoms == 4);
     case 7: // N
+      return (atom.group.getNitrogenAtom() == atom || nAtoms == 3 && atom.getFormalCharge() < 1);
     case 8: // O
-      return (nAtoms == 10 - n && atom.getFormalCharge() < 1);
+      return (atom.group.getCarbonylOxygenAtom() != atom && nAtoms == 2 && atom.getFormalCharge() < 1);
     case 16: // S
-      return (nAtoms == 18 - n && atom.getFormalCharge() < 1);
+      return (atom.group.groupID == JC.GROUPID_CYSTEINE || nAtoms == 2 && atom.getFormalCharge() < 1);
     }
     return false;
   }
@@ -728,9 +753,8 @@ abstract public class BondCollection extends AtomCollection {
       break;
     case 'p':
     case 'm':
-      bondOrder = Edge.getBondOrderNumberFromOrder(
-          bond.getCovalentOrder()).charAt(0)
-          - '0' + (type == 'p' ? 1 : -1);
+      bondOrder = Edge.getBondOrderNumberFromOrder(bond.getCovalentOrder())
+          .charAt(0) - '0' + (type == 'p' ? 1 : -1);
       if (bondOrder > 3)
         bondOrder = 1;
       else if (bondOrder < 0)
@@ -750,8 +774,11 @@ abstract public class BondCollection extends AtomCollection {
         return bsAtoms;
       }
       bond.setOrder(bondOrder | Edge.BOND_NEW);
-      removeUnnecessaryBonds(bond.atom1, false);
-      removeUnnecessaryBonds(bond.atom2, false);
+      if (bond.atom1.getElementNumber() != 1
+          && bond.atom2.getElementNumber() != 1) {
+        removeUnnecessaryBonds(bond.atom1, false);
+        removeUnnecessaryBonds(bond.atom2, false);
+      }
       bsAtoms.set(bond.atom1.i);
       bsAtoms.set(bond.atom2.i);
     } catch (Exception e) {

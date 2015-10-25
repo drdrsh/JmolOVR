@@ -106,6 +106,9 @@ public class CmdExt extends ScriptExt {
     slen = e.slen;
     this.st = st;
     switch (iTok) {
+    case T.binary:
+      st[0].value = prepareBinaryOutput((SV) st[0]);
+      return null;
     case T.assign:
       assign();
       break;
@@ -640,10 +643,21 @@ public class CmdExt extends ScriptExt {
           eval.report(GT.i(GT._("{0} hydrogen bonds"), Math.abs(n)));
         return;
       case T.hydrogen:
-        bs1 = (slen == 2 ? null : atomExpressionAt(2));
+        boolean andBond = (tokAt(2) == T.on);
+        if (andBond)
+          eval.iToken++;
+        bs1 = (slen == (andBond ? 3 : 2) ? null : atomExpressionAt(andBond ? 3  : 2));
         eval.checkLast(eval.iToken);
-        if (!chk)
+        if (!chk) {
           vwr.addHydrogens(bs1, false, false);
+          if (andBond) {
+            if (bs1 == null)
+              bs1 = vwr.bsA();
+            vwr.makeConnections(0.1f, 1e8f, Edge.BOND_AROMATIC,
+                T.modify, bs1, bs1, null, false, false, 0);
+            vwr.ms.assignAromaticBondsBs(true, null);            
+          }
+        }
         return;
       case T.partialcharge:
         eval.iToken = 1;
@@ -659,10 +673,11 @@ public class CmdExt extends ScriptExt {
       case T.symmetry:
       case T.pointgroup:
         if (!chk) {
-          if (eval.tokAt(2) == T.polyhedra)
-            setShapeProperty(JC.SHAPE_POLYHEDRA, "symmetry", null);
-          else
+          if (eval.tokAt(2) == T.polyhedra) {
+            showString((String) getShapePropertyIndex(JC.SHAPE_POLYHEDRA, "symmetry", 0));
+          } else {
             showString(vwr.ms.calculatePointGroup(vwr.bsA()));
+          }
         }
         return;
       case T.straightness:
@@ -681,7 +696,7 @@ public class CmdExt extends ScriptExt {
         case T.dssr:
           if (chk)
             return;
-          eval.showString(vwr.getAnnotationParser().calculateDSSRStructure(vwr, bs1));
+          eval.showString(vwr.getAnnotationParser(true).calculateDSSRStructure(vwr, bs1));
           return;
         case T.dssp:
           asDSSP = true;
@@ -1187,6 +1202,7 @@ public class CmdExt extends ScriptExt {
         float stddev = eval.getSmilesExt().getSmilesCorrelation(bsFrom, bsTo,
             strSmiles, null, null, m4, null, false, null, center,
             false, isSmiles ? JC.SMILES_TYPE_SMILES : JC.SMILES_TYPE_SMARTS);
+        System.out.println("compare:\n" + m4);
         if (Float.isNaN(stddev)) {
           showString("structures do not match");
           return;
@@ -1270,7 +1286,7 @@ public class CmdExt extends ScriptExt {
         if (chk)
           return;
         n = intParameter(e.checkLast(e.iToken + 1));
-        vwr.addStateScript("configuration " + bsAtoms + " " + n + ";", true, false);
+        vwr.addStateScript("configuration " + Escape.eBS(bsAtoms) + " " + n + ";", true, false);
         bsAtoms = vwr.ms.getConformation(vwr.am.cmi, n - 1, true, bsAtoms);
       }
     }
@@ -1514,10 +1530,10 @@ public class CmdExt extends ScriptExt {
           nBitSets++;
         if (atomIndex >= 0)
           invArg();
-        eval.expressionResult = Boolean.FALSE;
-        value = centerParameter(i);
-        if (eval.expressionResult instanceof BS) {
-          value = bs = (BS) eval.expressionResult;
+        Object[] ret = new Object[1];
+        value = eval.centerParameter(i, ret);
+        if (ret[0] instanceof BS) {
+          value = bs = (BS) ret[0];
           if (!chk && bs.length() == 0)
             return;
         }
@@ -2494,7 +2510,7 @@ public class CmdExt extends ScriptExt {
       qtOffset = eval.getPoint3f(1, false);
       isQ = (tokAt(eval.iToken + 1) == T.on);
       break;
-    case T.identifier:
+    default:
       String s = eval.theToken.value.toString();
       i++;
       if (s.equalsIgnoreCase("t")) {
@@ -2534,19 +2550,6 @@ public class CmdExt extends ScriptExt {
       if (!chk)
         vwr.setFloatProperty("modulationScale", scale);
       return;
-      //    case T.fps:
-      //      float f = floatParameter(2);
-      //      if (!chk)
-      //        vwr.setModulationFps(f);
-      //      return;
-      //    case T.play:
-      //      int t0 = intParameter(2);
-      //      frameN = intParameter(3);
-      //      qtOffset = P3.new3(t0, t0, t0);
-      //      isQ = true;
-      //      break;
-    default:
-      invArg();
     }
     if (!chk) {
       vwr.tm.setVibrationPeriod(0);
@@ -2809,7 +2812,7 @@ public class CmdExt extends ScriptExt {
       vwr.tm.navigateList(eval, list);
   }
 
-  protected String plot(T[] args) throws ScriptException {
+  private String plot(T[] args) throws ScriptException {
     ScriptEval eval = this.e;
     // also used for draw [quaternion, helix, ramachandran] 
     // and write quaternion, ramachandran, plot, ....
@@ -2891,14 +2894,23 @@ public class CmdExt extends ScriptExt {
       eval.iToken = pt0 + 1;
       for (int i = 0; i < 3; i++) {
         switch (tokAt(eval.iToken)) {
+        case T.string:
+          propToks[i] = T.getTokFromName((String)eval.getToken(eval.iToken).value);
+          break;
+        default:
+          propToks[i] = tokAt(eval.iToken);
+          break;
         case T.nada:
+          if (i == 0)
+            invArg();
+          //$FALL-THROUGH$
         case T.format:
         case T.min:
         case T.max:
           i = 2;
           continue;
         }
-        if ((propToks[i] = tokAt(eval.iToken)) != T.property && !T.tokAttr(propToks[i], T.atomproperty))
+        if (propToks[i] != T.property && !T.tokAttr(propToks[i], T.atomproperty))
           invArg();
         props[i] = getToken(eval.iToken).value.toString();
         eval.iToken++;
@@ -3155,6 +3167,15 @@ public class CmdExt extends ScriptExt {
 
   private boolean polyhedra() throws ScriptException {
     ScriptEval eval = e;
+    // polyhedra
+    // polyhedra on/off/delete
+    // polyhedra [type]
+    // where [type] is one of
+    //   n [opt. BONDS]
+    //   n-m [opt. BONDS]
+    //   [opt. RADIUS] x.y 
+    // polyhedra [type] [
+
     /*
      * needsGenerating:
      * 
@@ -3165,19 +3186,19 @@ public class CmdExt extends ScriptExt {
      * 
      * polyhedra [at most one selection set] [type-and/or-edge or on/off/delete]
      */
-    boolean needsGenerating = false;
+    boolean haveBonds = (slen == 1);
+    boolean haveCenter = false;
+    boolean needsGenerating = haveBonds;
     boolean onOffDelete = false;
     boolean typeSeen = false;
     boolean edgeParameterSeen = false;
-    boolean isDesignParameter = false;
-    int lighting = 0;
+    //    int lighting = T.nada; // never implemented; fullyLit does nothing
     int nAtomSets = 0;
-    e.sm.loadShape(JC.SHAPE_POLYHEDRA);
+    eval.sm.loadShape(JC.SHAPE_POLYHEDRA);
     setShapeProperty(JC.SHAPE_POLYHEDRA, "init", Boolean.TRUE);
-    String setPropertyName = "centers";
-    String decimalPropertyName = "radius_";
     float translucentLevel = Float.MAX_VALUE;
     int[] colorArgb = new int[] { Integer.MIN_VALUE };
+    String id = null;
     for (int i = 1; i < slen; ++i) {
       String propertyName = null;
       Object propertyValue = null;
@@ -3188,8 +3209,11 @@ public class CmdExt extends ScriptExt {
         needsGenerating = true;
         break;
       case T.unitcell:
+        if (id != null)
+          invArg();
         propertyName = "unitCell";
         propertyValue = Boolean.TRUE;
+        needsGenerating = true;
         break;
       case T.only:
         e.restrictSelected(false, false);
@@ -3198,117 +3222,164 @@ public class CmdExt extends ScriptExt {
       case T.on:
       case T.delete:
       case T.off:
-        if (i + 1 != slen || needsGenerating || nAtomSets > 1 || nAtomSets == 0
-            && "to".equals(setPropertyName))
+        if (i + 1 != slen || needsGenerating || nAtomSets > 1)
           error(ScriptError.ERROR_incompatibleArguments);
         propertyName = (eval.theTok == T.off ? "off"
             : eval.theTok == T.on ? "on" : "delete");
         onOffDelete = true;
         break;
-      case T.opEQ:
-      case T.comma:
-        continue;
+      case T.integer:
+        if (id != null)
+          invArg();
+        propertyName = "nVertices";
+        propertyValue = Integer.valueOf(intParameter(i));
+        needsGenerating = true;
+        if (tokAt(i + 1) == T.comma)
+          i++;
+        break;
       case T.bonds:
+        if (id != null)
+          invArg();
         if (nAtomSets > 0)
           invPO();
         needsGenerating = true;
         propertyName = "bonds";
+        haveBonds = true;
         break;
       case T.radius:
-        decimalPropertyName = "radius";
-        continue;
-      case T.integer:
+        i++;
+        //$FALL-THROUGH$
       case T.decimal:
-        if (nAtomSets > 0 && !isDesignParameter)
+        if (id != null)
+          invArg();
+        if (nAtomSets > 0)
           invPO();
-        if (eval.theTok == T.integer) {
-          if (decimalPropertyName == "radius_") {
-            propertyName = "nVertices";
-            propertyValue = Integer.valueOf(intParameter(i));
-            needsGenerating = true;
-            break;
-          }
-        }
-        propertyName = (decimalPropertyName == "radius_" ? "radius"
-            : decimalPropertyName);
+        propertyName = "radius";
         propertyValue = Float.valueOf(floatParameter(i));
-        decimalPropertyName = "radius_";
-        isDesignParameter = false;
+        needsGenerating = true;
+        break;
+      case T.offset:
+        eval.theTok = T.facecenteroffset;
+        //$FALL-THROUGH$
+      case T.facecenteroffset:
+        setShapeProperty(JC.SHAPE_POLYHEDRA, "collapsed", Boolean.TRUE);
+        //$FALL-THROUGH$
+      case T.planarparam:
+      case T.distancefactor:
+        propertyName = T.nameOf(eval.theTok);
+        switch (tokAt(i + 1)) {
+        // wish I had not done this. Inconsistent with general syntax; only used here
+        case T.opEQ:
+        case T.comma:
+          i++;
+          break;
+        }
+        propertyValue = Float.valueOf(floatParameter(++i));
+        break;
+      case T.model:
+        if (id == null)
+          invArg();
+        propertyName = "model";
+        propertyValue = Integer.valueOf(intParameter(++i));
+        break;
+      case T.to:
+        if (nAtomSets > 1 || id != null && !haveCenter)
+          invPO();
+        if ((tokAt(++i) == T.bitset || tokAt(i) == T.expressionBegin)
+            && !needsGenerating) {
+          // select... polyhedron .... to ....
+          propertyName = "toBitSet";
+          propertyValue = atomExpressionAt(i);
+        } else if (eval.isArrayParameter(i)) {
+          // select... polyhedron .... to [...]
+          // polyhedron {...} to [...]
+          propertyName = "toVertices";
+          propertyValue = eval.getPointArray(i, -1, false);
+        } else {
+          error(ScriptError.ERROR_insufficientArguments);
+        }
+        i = eval.iToken;
         needsGenerating = true;
         break;
       case T.bitset:
       case T.expressionBegin:
         if (typeSeen)
           invPO();
-        if (++nAtomSets > 2)
-          eval.bad();
-        if ("to".equals(setPropertyName))
+        switch (++nAtomSets) {
+        case 1:
+          if (id != null)
+            invArg();
+          propertyName = "centers";
+          break;
+        case 2:
+          propertyName = "to";
           needsGenerating = true;
-        propertyName = setPropertyName;
-        setPropertyName = "to";
+          break;
+        default:
+          eval.bad();
+        }
         propertyValue = atomExpressionAt(i);
         i = eval.iToken;
+        if (i + 1 == slen)
+          needsGenerating = true;
         break;
-      case T.to:
-        if (nAtomSets > 1)
-          invPO();
-        if (tokAt(i + 1) == T.bitset || tokAt(i + 1) == T.expressionBegin
-            && !needsGenerating) {
-          propertyName = "toBitSet";
-          propertyValue = atomExpressionAt(++i);
-          i = eval.iToken;
-          needsGenerating = true;
-          break;
-        } else if (eval.isArrayParameter(i + 1)) {
-          propertyName = "toVertices";
-          propertyValue = eval.getPointArray(i + 1, -1, false);
-          i = eval.iToken;
-          needsGenerating = true;
-          break;
-        } else if (!needsGenerating) {
-          error(ScriptError.ERROR_insufficientArguments);
-        }
-        setPropertyName = "to";
-        continue;
-      case T.facecenteroffset:
-      case T.planarparam:
-      case T.distancefactor:
-        if (nAtomSets == 0)
-          error(ScriptError.ERROR_insufficientArguments);
-        decimalPropertyName = T.nameOf(eval.theTok);
-        isDesignParameter = true;
-        continue;
       case T.color:
       case T.translucent:
       case T.opaque:
         translucentLevel = getColorTrans(eval, i, true, colorArgb);
         i = eval.iToken;
         continue;
+        //      case T.flat: // removed in Jmol 14.4 -- never documented
       case T.collapsed:
-      case T.flat:
-        propertyName = "collapsed";
-        propertyValue = (eval.theTok == T.collapsed ? Boolean.TRUE
-            : Boolean.FALSE);
+        // COLLAPSED
+        // COLLAPSED [faceCenterOffset]
         if (typeSeen)
           error(ScriptError.ERROR_incompatibleArguments);
         typeSeen = true;
-        break;
-      case T.triangles:
-      case T.notriangles:
-        propertyName = "token";
-        propertyValue = Integer.valueOf(e.theTok);
+        if (isFloatParameter(i + 1))
+          setShapeProperty(JC.SHAPE_POLYHEDRA, "faceCenterOffset",
+              Float.valueOf(floatParameter(++i)));
+        propertyName = "collapsed";
+        propertyValue = Boolean.TRUE;
         break;
       case T.noedges:
       case T.edges:
       case T.frontedges:
         if (edgeParameterSeen)
           error(ScriptError.ERROR_incompatibleArguments);
-        propertyName = paramAsStr(i);
         edgeParameterSeen = true;
+        propertyName = T.nameOf(eval.theTok);
         break;
+      case T.triangles:
+      case T.notriangles:
+      case T.backlit:
+      case T.frontlit:
       case T.fullylit:
-        lighting = eval.theTok;
+        // never implemented or 
+        //        lighting = eval.theTok;
         continue;
+      case T.id:
+      case T.times:
+      case T.identifier:
+        if (!eval.isColorParam(i)) {
+          if (i != 1)
+            invPO();
+          setShapeProperty(
+              JC.SHAPE_POLYHEDRA,
+              "thisID",
+              id = (eval.theTok == T.id ? stringParameter(++i) : eval
+                  .optParameterAsString(i)));
+          setShapeProperty(JC.SHAPE_POLYHEDRA, "model",
+              Integer.valueOf(vwr.am.cmi));
+          if (!eval.isCenterParameter(i + 1))
+            continue;
+          propertyName = "center";
+          propertyValue = centerParameter(++i);
+          i = eval.iToken;
+          haveCenter = true;
+          break;
+        }
+        //$FALL-THROUGH$
       default:
         if (eval.isColorParam(i)) {
           colorArgb[0] = eval.getArgbParam(i);
@@ -3317,22 +3388,26 @@ public class CmdExt extends ScriptExt {
         }
         invArg();
       }
-      setShapeProperty(JC.SHAPE_POLYHEDRA, propertyName, propertyValue);
+      if (propertyName != null)
+        setShapeProperty(JC.SHAPE_POLYHEDRA, propertyName, propertyValue);
       if (onOffDelete)
         return false;
     }
-    if (!needsGenerating && !typeSeen && !edgeParameterSeen && lighting == 0)
-      error(ScriptError.ERROR_insufficientArguments);
-    if (needsGenerating)
+    if (needsGenerating) {
+      if (!typeSeen && haveBonds)
+        setShapeProperty(JC.SHAPE_POLYHEDRA, "bonds", null);
       setShapeProperty(JC.SHAPE_POLYHEDRA, "generate", null);
+    } else if (!edgeParameterSeen) {// && lighting == T.nada)
+      error(ScriptError.ERROR_insufficientArguments);
+    }
     if (colorArgb[0] != Integer.MIN_VALUE)
       setShapeProperty(JC.SHAPE_POLYHEDRA, "colorThis",
           Integer.valueOf(colorArgb[0]));
     if (translucentLevel != Float.MAX_VALUE)
       eval.setShapeTranslucency(JC.SHAPE_POLYHEDRA, "", "translucentThis",
           translucentLevel, null);
-    if (lighting != 0)
-      setShapeProperty(JC.SHAPE_POLYHEDRA, "token", Integer.valueOf(lighting));
+    //    if (lighting != T.nada)
+    //      setShapeProperty(JC.SHAPE_POLYHEDRA, "token", Integer.valueOf(lighting));
     setShapeProperty(JC.SHAPE_POLYHEDRA, "init", Boolean.FALSE);
     return true;
   }
@@ -3490,7 +3565,7 @@ public class CmdExt extends ScriptExt {
         BS bsAtoms;
         if (pt + 1 < argCount && args[++pt].tok == T.expressionBegin
             || args[pt].tok == T.bitset) {
-          bsAtoms = eval.atomExpression(args, pt, 0, true, false, true, true);
+          bsAtoms = eval.atomExpression(args, pt, 0, true, false, null, true);
           pt = eval.iToken + 1;
         } else {
           bsAtoms = vwr.getAllAtoms();
@@ -3557,6 +3632,7 @@ public class CmdExt extends ScriptExt {
 
     int quality = Integer.MIN_VALUE;
     if (pt0 < argCount) {
+      // get type
       val = SV.sValue(tokenAt(pt, args));
       if (val.equalsIgnoreCase("clipboard")) {
         if (chk)
@@ -3574,9 +3650,10 @@ public class CmdExt extends ScriptExt {
           quality = SV.iValue(tokenAt(++pt, args));
       } else if (PT.isOneOf(val.toLowerCase(),
           ";xyz;xyzrn;xyzvib;mol;sdf;v2000;v3000;json;pdb;pqr;cml;")) {
+        // this still could be overruled by a type indicated
         type = val.toUpperCase();
         if (pt + 1 == argCount)
-          pt++;
+          pt++; // no PDB keyword given
       }
 
       // write [image|history|state] clipboard
@@ -3593,9 +3670,13 @@ public class CmdExt extends ScriptExt {
       }
     }
     if (pt + 2 == argCount) {
+      // unprocessed explicit type
+      // type may be defined already, but that could be from a file name extension
+      // here we override that
+      // write PDB "xxx.pdb"
       String s = SV.sValue(tokenAt(++pt, args));
       if (s.length() > 0 && s.charAt(0) != '.')
-        type = s.toUpperCase();
+        type = val.toUpperCase();
     }
 
     // set the file name
@@ -3617,6 +3698,12 @@ public class CmdExt extends ScriptExt {
       fileName = SV.sValue(tokenAt(pt, args));
       if (fileName.equalsIgnoreCase("clipboard") || !vwr.haveAccess(ACCESS.ALL))
         fileName = null;
+//      else if (isCommand && argCount != slen 
+//          && (tokAt(pt + 1) == T.per || tokAt(pt + 1) == T.colon)) {
+//        fileName = "";
+//        while (pt < argCount)
+//          fileName += SV.sValue(tokenAt(pt++, args));
+//      }
       break;
     default:
       invArg();
@@ -3782,49 +3869,24 @@ public class CmdExt extends ScriptExt {
           v = new Lst<Object>();
           v.addLast(((BArray) tVar.value).data);
         } else if (tVar.tok == T.hash) {
-          @SuppressWarnings("unchecked")
-          Map<String, SV> m = (Map<String, SV>) tVar.value;
-          if (m.containsKey("$_BINARY_$")) {
-            v = new Lst<Object>();
-            if (fileName != null)
-              for (Entry<String, SV> e : m.entrySet()) {
-                String key = e.getKey();
-                if (key.equals("$_BINARY_$"))
-                  continue;
-                SV o = e.getValue();
-                bytes = (o.tok == T.barray ? ((BArray) o.value).data : null);
-                if (bytes == null) {
-                  String s = o.asString();
-                  bytes = (s.startsWith(";base64,") ? Base64.decodeBase64(s)
-                      : s.getBytes());
-                }
-                if (key.equals("_DATA_")) {
-                  v = null;
-                  if (bytes == null)
-                    bytes = ((BArray) o.value).data;
-                  break;
-                } else if (key.equals("_IMAGE_")) {
-                  v.add(0, key);
-                  v.add(1, null);
-                  v.add(2, bytes);
-                } else {
-                  v.addLast(key);
-                  v.addLast(null);
-                  v.addLast(bytes);
-                }
-              }
-          }
+          v = (fileName == null ? new Lst<Object>() : prepareBinaryOutput(tVar));
         }
         if (v == null) {
-          if (bytes == null) {
-            data = tVar.asString();
-            type = "TXT";
-          }
+          //          if (bytes == null) {
+          data = tVar.asString();
+          type = "TXT";
+          //          }
         } else {
-          if (fileName != null
-              && (bytes = data = vwr.createZip(fileName,
-                  v.size() == 1 ? "BINARY" : "ZIPDATA", v)) == null)
-            eval.evalError("#CANCELED#", null);
+          if (fileName != null) {
+            params = new Hashtable<String, Object>();
+            params.put("data", v);
+            if ((bytes = data = (String) vwr.createZip(
+                fileName,
+                v.size() == 1 || fileName.endsWith(".png")
+                    || fileName.endsWith(".pngj") ? "BINARY" : "ZIPDATA",
+                params)) == null)
+              eval.evalError("#CANCELED#", null);
+          }
         }
       } else if (data == "SPT") {
         if (isCoord) {
@@ -3839,9 +3901,12 @@ public class CmdExt extends ScriptExt {
                 remotePath, null);
         }
       } else if (data == "ZIP" || data == "ZIPALL") {
-        if (fileName != null
-            && (bytes = data = vwr.createZip(fileName, type, scripts)) == null)
-          eval.evalError("#CANCELED#", null);
+        if (fileName != null) {
+          params = new Hashtable<String, Object>();
+          params.put("data", scripts);
+          if ((bytes = data = (String) vwr.createZip(fileName, type, params)) == null)
+            eval.evalError("#CANCELED#", null);
+        }
       } else if (data == "HISTORY") {
         data = vwr.getSetHistory(Integer.MAX_VALUE);
         type = "SPT";
@@ -3933,6 +3998,40 @@ public class CmdExt extends ScriptExt {
     return writeMsg(msg);
   }
 
+  public Lst<Object> prepareBinaryOutput(SV tvar) {
+    Map<String, SV> m = tvar.getMap();
+    if (m == null || !m.containsKey("$_BINARY_$"))
+      return null;
+    Lst<Object> v = new Lst<Object>();
+    for (Entry<String, SV> e : m.entrySet()) {
+      String key = e.getKey();
+      if (key.equals("$_BINARY_$"))
+        continue;
+      SV o = e.getValue();
+      byte[] bytes = (o.tok == T.barray ? ((BArray) o.value).data : null);
+      if (bytes == null) {
+        String s = o.asString();
+        bytes = (s.startsWith(";base64,") ? Base64.decodeBase64(s) : s
+            .getBytes());
+      }
+      if (key.equals("_DATA_")) {
+        // just return this binary data value
+        v = new Lst<Object>();
+        v.addLast(bytes);
+        return v;
+      } else if (key.equals("_IMAGE_")) {
+        v.add(0, key);
+        v.add(1, null);
+        v.add(2, bytes);
+      } else {
+        v.addLast(key);
+        v.addLast(null);
+        v.addLast(bytes);
+      }
+    }
+    return v;
+  }
+
   private String writeMsg(String msg) throws ScriptException {
     if (chk || msg == null)
       return "";
@@ -3959,7 +4058,8 @@ public class CmdExt extends ScriptExt {
     int len = 2;
     T token = getToken(1);
     // T.identifier for SV is set for variable names 
-    int tok = (token instanceof SV && token.tok != T.identifier ? T.nada : token.tok);
+    int tok = (token instanceof SV && token.tok != T.identifier ? T.nada
+        : token.tok);
     if (tok == T.string) {
       token = T.getTokenFromName(str.toLowerCase());
       if (token != null)
@@ -4032,6 +4132,13 @@ public class CmdExt extends ScriptExt {
       if (!chk)
         msg = vwr.fm.getPathForAllFiles();
       break;
+    case T.polyhedra:
+      if (!chk) {
+        Object[] info = new Object[2];
+        vwr.shm.getShapePropertyData(JC.SHAPE_POLYHEDRA, "allInfo", info);
+        msg = SV.getVariable(info[1]).asString();
+      }
+      break;
     case T.nmr:
       if (eval.optParameterAsString(2).equalsIgnoreCase("1H")) {
         len = 3;
@@ -4045,16 +4152,20 @@ public class CmdExt extends ScriptExt {
     case T.drawing:
     case T.chemical:
     case T.smiles:
-      checkLength(tok == T.chemical ? 3 : 2);
+      checkLength(tok == T.chemical || tok == T.smiles && tokAt(2) != T.nada ? len = 3
+          : 2);
       if (chk)
         return;
       try {
-        if (tok != T.smiles)
+        if (tok != T.smiles) {
           msg = vwr.getDataBaseName(null);
-        if (msg != null && (msg.startsWith("$") || msg.startsWith(":"))) {
-          msg = msg.substring(1);
-        } else {
-          msg = null;
+          if (msg != null && (msg.startsWith("$") || msg.startsWith(":"))) {
+            msg = msg.substring(1);
+          } else {
+            msg = null;
+          }
+        } else if (eval.optParameterAsString(2).equalsIgnoreCase("true")) {
+          msg = vwr.getBioSmiles(null);
         }
         if (msg == null)
           msg = vwr.getSmiles(null);
@@ -4066,7 +4177,8 @@ public class CmdExt extends ScriptExt {
         break;
       case T.drawing:
         if (msg.length() > 0) {
-          vwr.fm.loadImage(vwr.setLoadFormat("_" + msg, '2', false), "\1" + msg, false);
+          vwr.fm.loadImage(vwr.setLoadFormat("_" + msg, '2', false),
+              "\1" + msg, false);
           return;
         }
         msg = "Could not show drawing -- Either insufficient atoms are selected or the model is a PDB file.";
@@ -4098,7 +4210,7 @@ public class CmdExt extends ScriptExt {
       checkLength(len = ++eval.iToken);
       if (!chk)
         msg = vwr.ms.getSymTemp(true).getSymmetryInfoString(vwr.ms, vwr.am.cmi,
-          iop, pt1, pt2, null, type);
+            iop, pt1, pt2, null, type);
       break;
     case T.vanderwaals:
       VDW vdwType = null;
@@ -4228,8 +4340,7 @@ public class CmdExt extends ScriptExt {
       break;
     case T.display:// deprecated
     case T.selectionhalos:
-      msg = "selectionHalos "
-          + (vwr.getSelectionHalosEnabled() ? "ON" : "OFF");
+      msg = "selectionHalos " + (vwr.getSelectionHalosEnabled() ? "ON" : "OFF");
       break;
     case T.hetero:
       msg = "set selectHetero " + vwr.getBoolean(T.hetero);
@@ -4310,9 +4421,12 @@ public class CmdExt extends ScriptExt {
     case T.data:
       String dtype = ((len = slen) == 3 ? paramAsStr(2) : null);
       if (!chk) {
-        Object[] data = (Object[]) vwr.getDataObj(dtype, null, JmolDataManager.DATA_TYPE_LAST);
+        Object[] data = (Object[]) vwr.getDataObj(dtype, null,
+            JmolDataManager.DATA_TYPE_LAST);
         msg = (data == null ? "no data" : Escape.encapsulateData(
-            (String) data[JmolDataManager.DATA_LABEL], data[JmolDataManager.DATA_VALUE], ((Integer) data[JmolDataManager.DATA_TYPE]).intValue()));
+            (String) data[JmolDataManager.DATA_LABEL],
+            data[JmolDataManager.DATA_VALUE],
+            ((Integer) data[JmolDataManager.DATA_TYPE]).intValue()));
       }
       break;
     case T.spacegroup:
@@ -4324,7 +4438,8 @@ public class CmdExt extends ScriptExt {
       } else {
         String sg = paramAsStr(2);
         if (!chk)
-          info = vwr.ms.getSymTemp(true).getSpaceGroupInfo(vwr.ms, PT.rep(sg, "''", "\""));
+          info = vwr.ms.getSymTemp(true).getSpaceGroupInfo(vwr.ms,
+              PT.rep(sg, "''", "\""));
       }
       if (info != null)
         msg = "" + info.get("spaceGroupInfo") + info.get("symmetryInfo");
@@ -4448,7 +4563,8 @@ public class CmdExt extends ScriptExt {
         typ = null;
       len = slen;
       if (!chk)
-        showString(vwr.ms.getPointGroupAsString(vwr.bsA(), false, "show:" + typ, 0, 0));
+        showString(vwr.ms.getPointGroupAsString(vwr.bsA(), false,
+            "show:" + typ, 0, 0));
       return;
     case T.symmetry:
       if (!chk)
@@ -4993,10 +5109,13 @@ public class CmdExt extends ScriptExt {
                                         float min, float max)
       throws ScriptException {
 
-    float[] data = (float[]) (property == null ?
+    Object odata = (property == null ?
       e.getBitsetProperty(bs, tok, null, null, null, null,
           false, Integer.MAX_VALUE, false) 
           : vwr.getDataObj(property, bs, JmolDataManager.DATA_TYPE_AF));
+    if (odata == null || !AU.isAF(odata))
+      return new float[bs.cardinality()];
+    float[] data = (float[]) odata;
     if (!Float.isNaN(min))
       for (int i = 0; i < data.length; i++)
         if (data[i] < min)

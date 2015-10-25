@@ -55,6 +55,7 @@ public class ScriptContext {
   public boolean isJSThread;
   boolean isStateScript;
   boolean isTryCatch;
+  SV[] forVars;
   int iToken;
   int lineEnd = Integer.MAX_VALUE;
   public int[][] lineIndices;
@@ -143,13 +144,14 @@ public class ScriptContext {
     }
     pointers = new int[aa.length];
     for (int i = pointers.length; --i >= 0;)
-      pointers[i] = aa[i][0].intValue;
+      pointers[i] = (aa[i] == null ? -1 : aa[i][0].intValue);
   }
   
   T[][] restoreTokens() {
     if (pointers != null)
       for (int i = pointers.length; --i >= 0;)
-        aatoken[i][0].intValue = pointers[i];
+        if (aatoken[i] != null)
+          aatoken[i][0].intValue = pointers[i];
     return aatoken;
   }
 

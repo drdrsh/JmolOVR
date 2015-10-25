@@ -40,8 +40,7 @@ public class Jmol extends JmolPanel {
     //Assumes oculus is in extended desktop mode and is disignated as the second screen (i.e index 1)
     if(vwrOptions.get("oculusVRMode") != null){
       frame.setAlwaysOnTop( true );
-      showOnScreen(1, frame);
-      OculusWS.setFrame(frame);
+      //showOnScreen(1, frame);
     }
   }
   //01014247428

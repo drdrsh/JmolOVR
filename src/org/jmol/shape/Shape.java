@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-06-07 23:24:50 -0500 (Sun, 07 Jun 2015) $
- * $Revision: 20559 $
+ * $Date: 2015-10-19 01:22:30 -0500 (Mon, 19 Oct 2015) $
+ * $Revision: 20837 $
 
  *
  * Copyright (C) 2003-2005  The Jmol Development Team
@@ -212,17 +212,6 @@ public abstract class Shape {
     // balls, dots, other atomshapes
   }
 
-  /**
-   * 
-   * @param property
-   * @param data
-   * @return true if serviced
-   */
-  public boolean getPropertyData(String property, Object[] data) {
-    return false;
-  }
-
-
   @SuppressWarnings("unchecked")
   protected void setPropS(String propertyName, Object value, BS bsSelected) {
     if (propertyName == "setProperties") {
@@ -246,6 +235,25 @@ public abstract class Shape {
 
     Logger.warn("unassigned " + JC.shapeClassBases[shapeID] + " + shape setProperty:" + propertyName + ":" + value);
   }
+
+  /**
+   * 
+   * @param property
+   * @param data
+   * @return true if serviced
+   */
+  public boolean getPropertyData(String property, Object[] data) {
+    return getPropShape(property, data);
+  }
+
+  protected boolean getPropShape(String property, Object[] data) {
+    if (data[1] instanceof Integer) {
+       int index = ((Integer) data[1]).intValue();
+       data[1] = getProperty(property, index);
+       return (data[1] != null);
+     }
+    return false;
+   }
 
   /**
    * 

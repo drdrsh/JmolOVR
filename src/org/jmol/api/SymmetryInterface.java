@@ -38,7 +38,7 @@ public interface SymmetryInterface {
 
   public boolean createSpaceGroup(int desiredSpaceGroupIndex,
                                            String name,
-                                           Object object);
+                                           Object data);
 
   public String fcoord(T3 p);
 
@@ -112,7 +112,7 @@ public interface SymmetryInterface {
 
   public String getUnitCellState();
   
-  public V3[] getUnitCellVectors();
+  public P3[] getUnitCellVectors();
 
   public P3[] getUnitCellVerticesNoOffset();
 

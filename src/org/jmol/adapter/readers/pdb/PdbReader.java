@@ -276,8 +276,6 @@ public class PdbReader extends AtomSetCollectionReader {
      * can CIF files. --Bob Hanson 8/30/06
      */
     if (isMultiModel && !doProcessLines) {
-      if (isConcatenated)
-        checkDSSR();
       return true;
     }
     if (isAtom) {
@@ -356,8 +354,6 @@ public class PdbReader extends AtomSetCollectionReader {
     case 22:
       seqAdv();
       return true;
-    default:
-      checkDSSR();
     }
     return true;
   }
@@ -366,10 +362,6 @@ public class PdbReader extends AtomSetCollectionReader {
     checkCurrentLineForScript();
   }
 
-  private void checkDSSR() throws Exception {
-    if (line.trim().startsWith("DSSR:") && asc.ac > 0)
-      processDSSR(this, htGroup1);
-  }
 
   /*
 SEQADV 1EHZ 2MG A   10  GB   M10263      G    10 TRNA                           
@@ -402,6 +394,8 @@ SEQADV 1BLU GLU      7  SWS  P00208    GLN     7 CONFLICT
   }
 
   Map<String, String> htGroup1;
+  private int maxLength = 80;
+  private String pdbID;
   
   private String readHeader(boolean getLine) throws Exception {
     if (getLine) {
@@ -523,7 +517,9 @@ SEQADV 1BLU GLU      7  SWS  P00208    GLN     7 CONFLICT
     if (lineLength < 8)
       return;
     appendLoadNote(line.substring(7).trim());
-    String pdbID = (lineLength >= 66 ? line.substring(62, 66).trim() : "");
+    if (lineLength == 80)
+      maxLength = 72; // old style
+    pdbID = (lineLength >= 66 ? line.substring(62, 66).trim() : "");
     if (pdbID.length() == 4) {
       asc.setCollectionName(pdbID);
       asc.setInfo("havePDBHeaderName", Boolean.TRUE);
@@ -534,10 +530,8 @@ SEQADV 1BLU GLU      7  SWS  P00208    GLN     7 CONFLICT
   }
 
   private void title() {
-    if (lineLength > 72)
-      line = line.substring(0, 72);
-    if (lineLength >= 10)
-      appendLoadNote(line.substring(10).trim());
+    if (lineLength > 10)
+      appendLoadNote(line.substring(10, Math.min(maxLength , line.length())).trim());
   }
   
   private void compnd(boolean isSource) {
@@ -1328,6 +1322,8 @@ REMARK 290 REMARK: NULL
     setModelPDB(isPDB);
     nUNK = nRes = 0;
     currentGroup3 = null;
+    if (pdbID != null)
+      asc.setAtomSetName(pdbID);
   }
 
   private float cryst1;

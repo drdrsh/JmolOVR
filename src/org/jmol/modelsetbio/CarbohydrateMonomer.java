@@ -26,6 +26,7 @@ package org.jmol.modelsetbio;
 import org.jmol.c.STR;
 import org.jmol.modelset.Atom;
 import org.jmol.modelset.Chain;
+import org.jmol.modelset.Structure;
 
 public class CarbohydrateMonomer extends Monomer {
 
@@ -94,12 +95,9 @@ public class CarbohydrateMonomer extends Monomer {
   public boolean isConnectedPrevious() {
     if (monomerIndex <= 0)
       return false;
-      for (int i = firstAtomIndex; i <= lastAtomIndex; i++) {
-        // called by subclassed getCrossLinkAtomIndexes in
-        // AminoMonomer, NucleicMonomer, and CarbohydrateMonomer
-        if (getCrossLinkGroup(i, null, null))
-          return true;
-    }  
+    for (int i = firstAtomIndex; i <= lastAtomIndex; i++)
+      if (getCrossLinkGroup(i, null, null, true, false, false))
+        return true;
     return false;
   }
 

@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-06-07 23:24:50 -0500 (Sun, 07 Jun 2015) $
- * $Revision: 20559 $
+ * $Date: 2015-08-22 10:39:01 -0500 (Sat, 22 Aug 2015) $
+ * $Revision: 20721 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -184,7 +184,12 @@ public class GuiMap {
     labels.put("definecenter", GT._("Define &Center"));
     labels.put("tools", GT._("&Tools"));
     labels.put("gauss", GT._("&Gaussian..."));
-    labels.put("nbo", GT._("&NBO..."));
+    labels.put("nboMenu", "&NBO...");
+    labels.put("nboConfigScript", GT._("&Config"));
+    labels.put("nboModelScript", GT._("&Model"));
+    labels.put("nboRunScript", GT._("&Run"));
+    labels.put("nboViewScript", GT._("&View"));
+    labels.put("nboSearchScript", GT._("&Search"));
     labels.put("viewMeasurementTable", GT._("&Measurements") + "...");
     labels.put("distanceUnitsMenu", GT._("Distance &Units"));
     labels.put("distanceNanometersScript", GT._("&Nanometers 1E-9"));

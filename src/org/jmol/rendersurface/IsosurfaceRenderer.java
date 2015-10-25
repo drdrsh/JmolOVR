@@ -306,7 +306,7 @@ public class IsosurfaceRenderer extends MeshRenderer {
       for (int i = (!imesh.hasGridPoints || imesh.firstRealVertex < 0 ? 0
           : imesh.firstRealVertex); i < vertexCount; i += incr) {
         if (vertexValues != null && Float.isNaN(vertexValues[i]) || frontOnly
-            && transformedVectors[normixes[i]].z < 0 || imesh.jvxlData.thisSet >= 0
+            && !isVisibleNormix(normixes[i]) || imesh.jvxlData.thisSet >= 0
             && mesh.vertexSets[i] != imesh.jvxlData.thisSet || !mesh.isColorSolid
             && mesh.vcs != null && !setColix(mesh.vcs[i])
             || haveBsDisplay && !mesh.bsDisplay.get(i)
@@ -529,17 +529,15 @@ public class IsosurfaceRenderer extends MeshRenderer {
     for (int i = vertexCount; --i >= 0;) {
       if (vertexValues != null && Float.isNaN(vertexValues[i]))
         continue;
-      if (i > 100)
-        continue;
       pt1f.setT(vertices[i]);
       short n = mesh.normixes[i];
       // -n is an intensity2sided and does not correspond to a true normal
       // index
       if (n >= 0) {
-        pt1f.scaleAdd2(3, vertexVectors[n], pt1f);
-        tm.transformPtScrT3(pt1f, pt1f);
+        pt2f.scaleAdd2(0.3f, vertexVectors[n], pt1f);
+        tm.transformPtScrT3(pt2f, pt2f);
         pt1f.set(screens[i].x, screens[i].y, screens[i].z);
-        g3d.drawLineAB(pt1f, pt1f);
+        g3d.drawLineAB(pt1f, pt2f);
       }
     }
   }

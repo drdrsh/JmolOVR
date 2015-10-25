@@ -33,6 +33,8 @@ import org.jmol.api.SmilesMatcherInterface;
 import org.jmol.java.BS;
 import org.jmol.util.BNode;
 import org.jmol.util.BSUtil;
+import org.jmol.util.Elements;
+import org.jmol.util.Logger;
 import org.jmol.util.Node;
 import org.jmol.util.Point3fi;
 import org.jmol.viewer.JC;
@@ -105,10 +107,6 @@ public class SmilesMatcher implements SmilesMatcherInterface {
   private final static int SMILES_MODE_MASK         = 0x00F000;
 
 
-  private boolean checkFlag(int flags, int flag) {
-    return (flags & flag) == flag;
-  }
-
   @Override
   public String getLastException() {
     return InvalidSmilesException.getLastError();
@@ -142,25 +140,13 @@ public class SmilesMatcher implements SmilesMatcherInterface {
   /**
    * internal to Jmol -- called by org.jmol.Viewer.getSmiles
    */
-  
+
   @Override
   public String getSmiles(Node[] atoms, int ac, BS bsSelected,
-                             String bioComment, int flags) throws Exception {
-//  boolean asBioSmiles, boolean bioAllowUnmatchedRings,  boolean bioAddCrossLinks, boolean explicitH
-     InvalidSmilesException.clear();
-    if (checkFlag(flags, JC.SMILES_BIO)) {
-      boolean bioAllowUnmatchedRings = checkFlag(flags,
-          JC.SMILES_BIO_ALLOW_UNMACHED_RINGS);
-      boolean bioAddCrossLinks = checkFlag(flags, JC.SMILES_BIO_CROSSLINK);
-      return (new SmilesGenerator()).getBioSmiles((BNode[]) atoms, ac,
-          bsSelected, bioAllowUnmatchedRings, bioAddCrossLinks, bioComment);
-    }
-    boolean explicitH = checkFlag(flags, JC.SMILES_EXPLICIT_H);
-    boolean topologyOnly = checkFlag(flags, JC.SMILES_TOPOLOGY);
-    boolean getAromatic = !checkFlag(flags, JC.SMILES_NOAROMATIC);
-    
-    return (new SmilesGenerator()).getSmiles(atoms, ac, bsSelected, explicitH,
-        topologyOnly, getAromatic);
+                          String bioComment, int flags) throws Exception {
+    //  boolean asBioSmiles, boolean bioAllowUnmatchedRings,  boolean bioAddCrossLinks, boolean explicitH
+    InvalidSmilesException.clear();
+    return (new SmilesGenerator()).getSmiles(atoms, ac, bsSelected, bioComment, flags);
   }
 
   @Override
@@ -215,9 +201,15 @@ public class SmilesMatcher implements SmilesMatcherInterface {
     SmilesSearch search = SmilesParser.getMolecule(smiles, false);
     // boolean isSmarts,  boolean matchAllAtoms, boolean firstMatchOnly
 
-    return (int[][]) findPriv(pattern, search, 
+    int[][] array = (int[][]) findPriv(pattern, search, 
         (isSmarts? JC.SMILES_TYPE_SMARTS : JC.SMILES_TYPE_SMILES | JC.SMILES_MATCH_ALL)
         | (firstMatchOnly ? JC.SMILES_RETURN_FIRST : 0) | SMILES_MODE_MAP);
+    for (int i = array.length; --i >= 0;) {
+      int[] a = array[i];
+      for (int j = a.length; --j >= 0;)
+        a[j] = ((SmilesAtom) search.jmolAtoms[a[j]]).mapIndex;
+    }
+    return array;
   }
 
   @Override
@@ -232,8 +224,8 @@ public class SmilesMatcher implements SmilesMatcherInterface {
       return "none";
     boolean check;
     // note: find smiles1 IN smiles2 here
-    int n1 = countStereo(smiles1);
-    int n2 = countStereo(smiles2);
+    int n1 = PT.countChar(PT.rep(smiles1, "@@", "@"), '@');
+    int n2 = PT.countChar(PT.rep(smiles2, "@@", "@"), '@');
     check = (n1 == n2 && areEqual(smiles2, smiles1) > 0);
     if (!check) {
       // MF matched, but didn't match SMILES
@@ -241,8 +233,7 @@ public class SmilesMatcher implements SmilesMatcherInterface {
       if (s.indexOf("/") >= 0 || s.indexOf("\\") >= 0 || s.indexOf("@") >= 0) {
         if (n1 == n2 && n1 > 0) {
           // reverse chirality centers
-          smiles1 = reverseChirality(smiles1);
-          check = (areEqual(smiles1, smiles2) > 0);
+          check = (areEqual("/invertstereo/" + smiles2, smiles1) > 0);
           if (check)
             return "enantiomers";
         }
@@ -257,14 +248,20 @@ public class SmilesMatcher implements SmilesMatcherInterface {
     return "identical";
   }
 
+  /**
+   * Note, this may be incompatible with [$(select(..))]
+   * 
+   * THIS IS NOT DEPENDABLE. USE /invertStereo/ INSTEAD
+   */
   @Override
   public String reverseChirality(String smiles) {
     smiles = PT.rep(smiles, "@@", "!@");
     smiles = PT.rep(smiles, "@", "@@");
     smiles = PT.rep(smiles, "!@@", "@");
-    smiles = PT.rep(smiles, "@@SP", "@SP");
-    smiles = PT.rep(smiles, "@@OH", "@OH");
-    smiles = PT.rep(smiles, "@@TB", "@TB");
+    // note -- @@SP does not exist
+//    smiles = PT.rep(smiles, "@@SP", "@SP");
+//    smiles = PT.rep(smiles, "@@OH", "@OH");
+//    smiles = PT.rep(smiles, "@@TP", "@TP");
     return smiles;
   }
 
@@ -352,49 +349,68 @@ public class SmilesMatcher implements SmilesMatcherInterface {
   
   /**
    * Generate a topological SMILES string from a set of faces
+   * 
    * @param faces
    * @param atomCount
+   * 
    * @return topological SMILES string
-   * @throws Exception 
+   * @throws Exception
    */
   @Override
-  public String polyhedronToSmiles(int[][] faces, int atomCount, P3[] points) throws Exception {
+  public String polyhedronToSmiles(Node center, int[][] faces, int atomCount,
+                                   P3[] points, int flags, String details)
+      throws Exception {
     SmilesAtom[] atoms = new SmilesAtom[atomCount];
     for (int i = 0; i < atomCount; i++) {
       atoms[i] = new SmilesAtom();
       P3 pt = (points == null ? null : points[i]);
-      atoms[i].elementNumber = (pt == null ? -2 : 
-        pt instanceof Node ? ((Node) pt).getElementNumber() : 
-          pt instanceof Point3fi ? ((Point3fi) pt).sD
-              : -2);
+      if (pt instanceof Node) {
+        atoms[i].elementNumber = ((Node) pt).getElementNumber();
+        atoms[i].atomName = ((Node) pt).getAtomName();
+        atoms[i].atomNumber = ((Node) pt).getAtomNumber();
+        atoms[i].setT(pt);
+      } else {
+        atoms[i].elementNumber = (pt instanceof Point3fi ? ((Point3fi) pt).sD
+            : -2);
+      }
       atoms[i].index = i;
     }
     int nBonds = 0;
     for (int i = faces.length; --i >= 0;) {
       int[] face = faces[i];
       int n = face.length;
+      int iatom, iatom2;
       for (int j = n; --j >= 0;) {
-        int iatom = face[j];
-        if (iatom < 0 || iatom >= atomCount)
-          continue;
-        int iatom2 = face[(j + 1) %n];
-        if (iatom2 < 0 || iatom2 >= atomCount)
-          iatom2 = face[(j + 2) %n];
-        if (iatom2 < 0 || iatom2 >= atomCount)
+        if ((iatom = face[j]) >= atomCount
+            || (iatom2 = face[(j + 1) % n]) >= atomCount)
           continue;
         if (atoms[iatom].getBondTo(atoms[iatom2]) == null) {
-          SmilesBond b = new SmilesBond(atoms[iatom], atoms[iatom2], SmilesBond.TYPE_SINGLE,  false);
+          SmilesBond b = new SmilesBond(atoms[iatom], atoms[iatom2],
+              SmilesBond.TYPE_SINGLE, false);
           b.index = nBonds++;
         }
       }
     }
     for (int i = 0; i < atomCount; i++) {
-      int n = atoms[i].bondCount; 
+      int n = atoms[i].bondCount;
       if (n == 0 || n != atoms[i].bonds.length)
         atoms[i].bonds = (SmilesBond[]) AU.arrayCopyObject(atoms[i].bonds, n);
     }
-    return getSmiles(atoms, atomCount, BSUtil.newBitSet2(0,  atomCount), null, 
-        JC.SMILES_NOAROMATIC | (points == null ? JC.SMILES_TOPOLOGY : JC.SMILES_TYPE_SMILES));   
+    String s = null;
+    SmilesGenerator g = new SmilesGenerator();
+    if (points != null)
+      g.stereoReference = (P3) center;
+    InvalidSmilesException.clear();
+    s = g.getSmiles(atoms, atomCount, BSUtil.newBitSet2(0, atomCount),
+        null, flags | JC.SMILES_EXPLICIT_H | JC.SMILES_NOAROMATIC
+            | JC.SMILES_NOSTEREO);
+    if (JC.checkFlag(flags, JC.SMILES_POLYHEDRAL)) {
+      s = "//* " + center + " *//\t["
+          + Elements.elementSymbolFromNumber(center.getElementNumber()) + "@PH"
+          + atomCount + (details == null ? "" : "/" + details + "/") + "]." + s;
+    }
+
+    return s;
   }
 
 
@@ -439,7 +455,7 @@ public class SmilesMatcher implements SmilesMatcherInterface {
                        BS bsAromatic, int flags) throws Exception {
     InvalidSmilesException.clear();
     try {
-      SmilesSearch search = SmilesParser.getMolecule(pattern, checkFlag(flags, JC.SMILES_TYPE_SMARTS));
+      SmilesSearch search = SmilesParser.getMolecule(pattern, JC.checkFlag(flags, JC.SMILES_TYPE_SMARTS));
       search.jmolAtoms = atoms;
       if (atoms instanceof BNode[])
         search.bioAtoms = (BNode[]) atoms;
@@ -450,8 +466,8 @@ public class SmilesMatcher implements SmilesMatcherInterface {
       search.getSelections();
       search.bsRequired = null;//(bsRequired != null && bsRequired.cardinality() > 0 ? bsRequired : null);
       search.setRingData(bsAromatic);
-      search.firstMatchOnly = checkFlag(flags, JC.SMILES_RETURN_FIRST);
-      search.matchAllAtoms = checkFlag(flags, JC.SMILES_MATCH_ALL);
+      search.firstMatchOnly = JC.checkFlag(flags, JC.SMILES_RETURN_FIRST);
+      search.matchAllAtoms = JC.checkFlag(flags, JC.SMILES_MATCH_ALL);
       switch (flags & SMILES_MODE_MASK) {
       case SMILES_MODE_BITSET:
         search.asVector = false;
@@ -466,22 +482,13 @@ public class SmilesMatcher implements SmilesMatcherInterface {
         return vl.toArray(AU.newInt2(vl.size()));
       }
     } catch (Exception e) {
-      e.printStackTrace();
+      if (Logger.debugging)
+        e.printStackTrace();
       if (InvalidSmilesException.getLastError() == null)
         InvalidSmilesException.clear();
       throw new InvalidSmilesException(InvalidSmilesException.getLastError());
     }
     return null;
-  }
-
-  private static int countStereo(String s) {
-    s = PT.rep(s, "@@", "@");
-    int i = s.lastIndexOf('@') + 1;
-    int n = 0;
-    for (; --i >= 0;)
-      if (s.charAt(i) == '@')
-        n++;
-    return n;
   }
 
   @Override

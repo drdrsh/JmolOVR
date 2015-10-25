@@ -32,6 +32,7 @@ import org.jmol.console.JmolButton;
 import org.jmol.console.JmolToggleButton;
 import org.jmol.dialog.Dialog;
 import org.jmol.i18n.GT;
+import org.mosmar.ovrui.OculusWS;
 import org.openscience.jmol.app.jmolpanel.console.AppConsole;
 import org.openscience.jmol.app.jmolpanel.console.ConsoleTextArea;
 import org.openscience.jmol.app.jsonkiosk.BannerFrame;
@@ -50,6 +51,8 @@ import org.openscience.jmol.app.Jmol;
 import org.openscience.jmol.app.JmolApp;
 import org.openscience.jmol.app.SplashInterface;
 import org.openscience.jmol.app.webexport.WebExport;
+
+import com.oculusvr.capi.Hmd;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -77,7 +80,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Hashtable;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -201,7 +203,7 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
   private static final String copyScriptActionProperty = "copyScript";
   private static final String surfaceToolActionProperty = "surfaceTool";  private static final String pasteClipboardActionProperty = "pasteClipboard";
   private static final String gaussianAction = "gauss";
-  private static final String nboAction = "nbo";
+//  private static final String nboAction = "nbo";
   private static final String resizeAction = "resize";
   //private static final String saveasAction = "saveas";
   //private static final String vibAction = "vibrate";
@@ -267,7 +269,8 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
       vwrOptions.put("codePath", JmolResourceHandler.codePath);
     if (modelAdapter != null)
       vwrOptions.put("modelAdapter", modelAdapter);
-    vwr = new Viewer(this.vwrOptions = vwrOptions);
+    this.vwrOptions = vwrOptions;
+    vwr = new Viewer(vwrOptions);
     display.setViewer(vwr);
     myStatusListener.setViewer(vwr);
 
@@ -411,6 +414,8 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
     } else {
       jmolFrame = new JFrame();
     }
+
+    OculusWS.setFrame(jmolFrame);
 
     // now pass these to vwr
 
@@ -951,6 +956,8 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
           String menuKey = ((JmolAbstractButton) e.getSource()).getKey();
           if (menuKey.equals("display") || menuKey.equals("tools"))
             setMenuState();
+          if (menuKey.equals("nboMenu"))
+            setMenuNBO((JMenu) e.getSource());
         }
         @Override
         public void menuDeselected(MenuEvent e) {
@@ -1008,7 +1015,7 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
       new RecentFilesAction(), povrayAction, writeAction, toWebAction, 
       new ScriptWindowAction(), new ScriptEditorAction(),
       new AtomSetChooserAction(), viewMeasurementTableAction, 
-      new GaussianAction(), new NBOAction(), new ResizeAction(), surfaceToolAction }
+      new GaussianAction(), /*new NBOAction(),*/ new ResizeAction(), surfaceToolAction }
   ;
 
   class CloseAction extends AbstractAction {
@@ -1090,17 +1097,6 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
     }
   }
     
-  class NBOAction extends AbstractAction {
-    public NBOAction() {
-      super(nboAction);
-    }
-    
-    @Override
-    public void actionPerformed(ActionEvent e) {
-      startNBO();
-    }
-  }
-    
   class NewwinAction extends AbstractAction {
 
     NewwinAction() {
@@ -1120,12 +1116,42 @@ public class JmolPanel extends JPanel implements SplashInterface, JsonNioClient 
     newFrame.setVisible(true);
   }
   
-  void startNBO() {
+  /**
+   * @param item  
+   */
+  void setMenuNBO(JMenu item) {
+// no longer used - causes delay in hovering over NBO menu item
+//    Component[] nodes = item.getMenuComponents();
+//    
+//    for (int i = nodes.length; --i >= 0;) {
+//      String text = ((JMenuItem) nodes[i]).getText();
+//      nodes[i].setEnabled(text.equals("Config"));
+//    }
+//    getNBOService();
+//    if (!nboService.restartIfNecessary()) {
+//      return;
+//    }
+//    if (nboDialog == null)
+//      nboDialog = new NBODialog(frame, vwr, nboService);
+//    // individual nodes here
+//    nodes[1].setEnabled(true); // model
+//    nodes[2].setEnabled(true);//vwr.ms.at.length > 0); // run
+//    //boolean viewOK = "gennbo".equals(vwr.ms.getInfo(vwr.am.cmi, "fileType"));
+//    nodes[3].setEnabled(true); // view    
+//    nodes[4].setEnabled(true); // search
+  }
+  void startNBO(String type) {
+    
+    // this next is the problem
     getNBOService();
+
     if (nboDialog == null)
       nboDialog = new NBODialog(frame, vwr, nboService);
     else
       nboDialog.setVisible(true);
+    if (type != null)
+      nboDialog.openPanel(type.charAt(0));
+    
   }
 
   class UguideAction extends AbstractAction {

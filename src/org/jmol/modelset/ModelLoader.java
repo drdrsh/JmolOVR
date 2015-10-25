@@ -445,6 +445,8 @@ public final class ModelLoader {
         addJmolDataProperties(ms.am[i], (Map<String, float[]>) ms.getInfo(i, "jmolDataProperties"));
       String groupList = (String) ms.getInfo(i,
           "groupPropertyList");
+      if (ms.am[i].isBioModel && ms.getInfo(i, "dssr") != null)
+        vwr.getAnnotationParser(true).setGroup1(ms, i);
       if (atomProperties == null)
         continue;
       for (Map.Entry<String, Object> entry : atomProperties.entrySet()) {

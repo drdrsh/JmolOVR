@@ -1061,7 +1061,7 @@ public class PyMOLReader extends PdbReader implements PymolAtomReader {
       bsState.set(ac);
 
     String label = stringAt(a, 9);
-    String ssType = stringAt(a, 10);
+    String ssType = stringAt(a, 10).substring(0, 1);
     if (seqNo >= MIN_RESNO
         && (!ssType.equals(" ") || name.equals("CA") || isNucleic)) {
       BS bs = ssMapSeq.get(ssType);
@@ -1230,7 +1230,8 @@ public class PyMOLReader extends PdbReader implements PymolAtomReader {
    * 
    */
   private void processMeshes() {
-    vwr.cachePut(pymolScene.surfaceInfoName, volumeData);
+    String fileName = vwr.fm.getFilePath(pymolScene.surfaceInfoName, true, false);
+    vwr.cachePut(fileName, volumeData);
     for (int i = mapObjects.size(); --i >= 0;) {
       Lst<Object> obj = mapObjects.get(i);
       String objName = obj.get(obj.size() - 1).toString();

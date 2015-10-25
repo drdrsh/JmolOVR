@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-08 16:46:34 -0500 (Sat, 08 Aug 2015) $
- * $Revision: 20684 $
+ * $Date: 2015-10-01 08:11:38 -0500 (Thu, 01 Oct 2015) $
+ * $Revision: 20804 $
 
  *
  * Copyright (C) 2003-2005  The Jmol Development Team
@@ -40,6 +40,7 @@ import org.jmol.atomdata.RadiusData.EnumType;
 import org.jmol.c.PAL;
 import org.jmol.c.VDW;
 import org.jmol.java.BS;
+import org.jmol.modelsetbio.BioModel;
 import org.jmol.script.T;
 import org.jmol.util.C;
 import org.jmol.util.Elements;
@@ -443,6 +444,9 @@ public class Atom extends Point3fi implements BNode {
       valence = (byte) (nBonds < 0 ? 0 : nBonds < 0xEF ? nBonds : 0xEF);
   }
 
+  /**
+   * return the total bond order for this atom
+   */
   @Override
   public int getValence() {
     if (isDeleted())
@@ -590,7 +594,8 @@ public class Atom extends Point3fi implements BNode {
     return (type == null ? getAtomName() : type);
   }
    
-   public int getAtomNumber() {
+   @Override
+  public int getAtomNumber() {
      int[] atomSerials = group.chain.model.ms.atomSerials;
      // shouldn't ever be null.
      return (atomSerials == null ? i : atomSerials[i]);
@@ -890,7 +895,7 @@ public class Atom extends Point3fi implements BNode {
       info.append(" ");
       info.appendI(getAtomNumber());
     }
-    if (altloc != 0) {
+    if (altloc != '\0') {
       info.append("%");
       info.appendC(altloc);
     }
@@ -918,23 +923,12 @@ public class Atom extends Point3fi implements BNode {
   }
 
   @Override
-  public boolean isProtein() {
-    return group.isProtein();
-  }
-
-  @Override
-  public boolean isNucleic() {
-    return group.isNucleic();
-  }
-
-  @Override
-  public boolean isDna() {
-    return group.isDna();
-  }
-  
-  @Override
-  public boolean isRna() {
-    return group.isRna();
+  public char getBioSmilesType() {
+    return  (group.isProtein() ? 'p'
+        : group.isDna() ? 'd'
+            : group.isRna() ? 'r'
+                : group.isCarbohydrate() ? 'c'
+                    : ' ');
   }
 
   @Override
@@ -1244,15 +1238,15 @@ public class Atom extends Point3fi implements BNode {
     case T.spacefill:
       return getRadius();
     case T.screenx:
-      return sX;
+      return (vwr.antialiased ? sX / 2 : sX);
     case T.screeny:
-      return group.chain.model.ms.vwr.getScreenHeight() - sY;
+      return vwr.getScreenHeight() - (vwr.antialiased ? sY / 2 : sY);
     case T.screenz:
-      return sZ;
+      return (vwr.antialiased ? sZ / 2 : sZ);
     case T.selected:
       return (vwr.slm.isAtomSelected(i) ? 1 : 0);
     case T.surfacedistance:
-      group.chain.model.ms.getSurfaceDistanceMax();
+      vwr.ms.getSurfaceDistanceMax();
       return getSurfaceDistance100() / 100f;
     case T.temperature: // 0 - 9999
       return getBfactor100() / 100f;
@@ -1394,6 +1388,7 @@ public class Atom extends Point3fi implements BNode {
 
   @Override
   public int getOffsetResidueAtom(String name, int offset) {
+    // used by DSSP and SMILES
     return group.getAtomIndex(name, offset);
   }
   
@@ -1402,9 +1397,12 @@ public class Atom extends Point3fi implements BNode {
     return group.isCrossLinked(((Atom) node).group);
   }
 
+  /**
+   * Used by SMILES to get vector of cross-links
+   */
   @Override
-  public boolean getCrossLinkLeadAtomIndexes(Lst<Integer> vReturn) {
-    return group.getCrossLinkLead(vReturn);
+  public boolean getCrossLinkVector(Lst<Integer> vReturn, boolean crosslinkCovalent, boolean crosslinkHBond) {
+    return group.getCrossLinkVector(vReturn, crosslinkCovalent, crosslinkHBond);
   }
   
   @Override
@@ -1416,6 +1414,11 @@ public class Atom extends Point3fi implements BNode {
   public BS findAtomsLike(String atomExpression) {
     // for SMARTS searching
     return group.chain.model.ms.vwr.getAtomBitSet(atomExpression);
+  }
+
+  public String getUnitID(int flags) {
+    Model m = group.getModel();
+    return (m.isBioModel ? ((BioModel) m).getUnitID(this, flags) : "");
   }
 
 }

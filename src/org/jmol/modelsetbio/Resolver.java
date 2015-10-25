@@ -102,7 +102,7 @@ public final class Resolver implements JmolBioResolver, Comparator<String[]> {
     haveHsAlready = false;
     if (modelLoader == null) {
       ms = null;
-      bsAddedHydrogens = bsAtomsForHs = null;
+      bsAddedHydrogens = bsAtomsForHs = bsAssigned = null;
       htBondMap = null;
       htGroupBonds = null;
       hNames = null;
@@ -602,7 +602,7 @@ public final class Resolver implements JmolBioResolver, Comparator<String[]> {
     if (o != null) {
       Object dbObj = ((BioModel)ml.ms.bioModelset).getCachedAnnotationMap(name, o);
       if (dbObj != null)
-        vwr.getAnnotationParser().fixAtoms(i, (SV) dbObj, bsAddedMask, type, 20);
+        vwr.getAnnotationParser(false).fixAtoms(i, (SV) dbObj, bsAddedMask, type, 20);
     }
   }
 
@@ -1187,26 +1187,26 @@ public final class Resolver implements JmolBioResolver, Comparator<String[]> {
     // with the deprecation of +X, we will need a new
     // way to handle these. 
     
-    "G  ", // 24 starts nucleics 
+    "G  ", // 24 starts nucleics //0 
     "C  ", 
     "A  ",
     "T  ", 
     "U  ", 
-    "I  ", 
+    "I  ", // 29 / 5
     
-    "DG ", // 30 
+    "DG ", // 30 / 6
     "DC ",
     "DA ",
     "DT ",
     "DU ",
-    "DI ",
+    "DI ", // 35 / 11
     
-    "+G ", // 36
+    "+G ", // 36 / 12
     "+C ",
     "+A ",
     "+T ",
     "+U ",
-    "+I ",
+    "+I ", // 41 / 17
     /* removed bh 7/1/2011 this is isolated inosine, not a polymer "NOS", // inosine */
     
     // solvent types: -- if these numbers change, also change GROUPID_WATER,_SOLVENT,and_SULFATE
@@ -1419,7 +1419,7 @@ public final class Resolver implements JmolBioResolver, Comparator<String[]> {
     "C5'", //  7 - sugar 5' carbon       SPINE
     "C4'", //  8 - sugar ring 4' carbon  SPINE
     "C3'", //  9 - sugar ring 3' carbon  SPINE
-    "O3'", // 10 - sugar 3' oxygen
+    "O3'", // 10 - sugar 3' oxygen       SPINE
     "C2'", // 11 - sugar ring 2' carbon
     "C1'", // 12 - sugar ring 1' carbon
     // Phosphorus is not required for a nucleic group because
@@ -1541,8 +1541,8 @@ public final class Resolver implements JmolBioResolver, Comparator<String[]> {
     "H2''",
     "HO2'",
   
-    "O3P", //    - third equivalent oxygen on phosphorus of phosphate    
-    "OP3", //    - third equivalent oxygen on phosphorus of phosphate -- new designation
+    "O3P", // 99    - third equivalent oxygen on phosphorus of phosphate    
+    "OP3", //100    - third equivalent oxygen on phosphorus of phosphate -- new designation
         
   };
   

@@ -1,7 +1,7 @@
 /* $RCSfile$
  * $Author: hansonr $
- * $Date: 2015-08-08 16:46:34 -0500 (Sat, 08 Aug 2015) $
- * $Revision: 20684 $
+ * $Date: 2015-09-08 01:25:42 -0500 (Tue, 08 Sep 2015) $
+ * $Revision: 20760 $
  *
  * Copyright (C) 2002-2005  The Jmol Development Team
  *
@@ -32,6 +32,8 @@ import javajs.util.Quat;
 import org.jmol.util.BSUtil;
 import org.jmol.util.Escape;
 import org.jmol.util.Logger;
+import org.jmol.viewer.JC;
+
 import javajs.util.P3;
 import org.jmol.c.STR;
 import org.jmol.java.BS;
@@ -51,7 +53,7 @@ import java.util.Map;
  * 
  */
 @J2SRequireImport({java.lang.Short.class,org.jmol.viewer.JC.class})
-public class Group {
+public class Group implements Structure {
 
   public static String standardGroupList; // will be populated by org.jmol.biomodelset.Resolver
   public static String[] group3Names = new String[128];
@@ -125,10 +127,27 @@ public class Group {
    * 
    * @param bs
    */
+  @Override
   public void setAtomBits(BS bs) {
     bs.setBits(firstAtomIndex, lastAtomIndex + 1);
     if (bsAdded != null)
       bs.or(bsAdded);
+  }
+
+  /**
+   * Setting and clearing
+   * 
+   * @param bs
+   * @param bsOut 
+   */
+  @Override
+  public void setAtomBitsAndClear(BS bs, BS bsOut) {
+    bs.setBits(firstAtomIndex, lastAtomIndex + 1);
+    bsOut.clearBits(firstAtomIndex, lastAtomIndex + 1);
+    if (bsAdded != null) {
+      bs.or(bsAdded);
+      bsOut.andNot(bsAdded);
+    }
   }
 
   public boolean isSelected(BS bs) {
@@ -162,7 +181,7 @@ public class Group {
     return -1;
   }
 
-  public Object getStructure() {
+  public Structure getStructure() {
     return null;
   }
 
@@ -189,19 +208,84 @@ public class Group {
     return -1;
   }
 
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
   public boolean isProtein() { 
-    return false; 
+    return (groupID >= 1 && groupID < JC.GROUPID_AMINO_MAX); 
   }
   
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
   public boolean isNucleic() {
-    return false;
-    //return (groupID >= JC.GROUPID_AMINO_MAX 
-      //  && groupID < JC.GROUPID_NUCLEIC_MAX); 
+    return (groupID >= JC.GROUPID_AMINO_MAX 
+        && groupID < JC.GROUPID_NUCLEIC_MAX); 
   }
-  public boolean isDna() { return false; }
-  public boolean isRna() { return false; }
-  public boolean isPurine() { return false; }
-  public boolean isPyrimidine() { return false; }
+  
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  public boolean isDna() { return isDnaByID(); }
+
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  public boolean isRna() { return isRnaByID(); }
+  
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  public boolean isPurine() { return isPurineByID(); }
+  
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  protected boolean isPurineByID() {
+    return (isNucleic() && (JC.PURINE_MASK & (1<<(groupID - JC.GROUPID_AMINO_MAX))) != 0);
+  }
+
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  public boolean isPyrimidine() { return isPyrimidineByID(); }
+  
+  protected boolean isPyrimidineByID() {
+    return (isNucleic() && (JC.PYRIMIDINE_MASK & (1<<(groupID - JC.GROUPID_AMINO_MAX))) != 0);
+  }
+
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  protected boolean isRnaByID() {
+    return (isNucleic() && (JC.RNA_MASK & (1<<(groupID - JC.GROUPID_AMINO_MAX))) != 0);
+  }
+
+  /**
+   * group ID-based definition
+   *  
+   * @return boolean
+   */
+  protected boolean isDnaByID() {
+    return (isNucleic() && (JC.DNA_MASK & (1<<(groupID - JC.GROUPID_AMINO_MAX))) != 0);
+  }
+
   public boolean isCarbohydrate() { return false; }
 
 
@@ -259,6 +343,10 @@ public class Group {
     return (seqcode == Integer.MIN_VALUE ? '\0' :(char)(seqcode & INSERTION_CODE_MASK));
   }
   
+  public final int getInsCode() {
+    return (seqcode & INSERTION_CODE_MASK); 
+  }
+
   public static int getInsertionCodeFor(int seqcode) {
     return (seqcode & INSERTION_CODE_MASK);
   }
@@ -378,9 +466,11 @@ public class Group {
   /**
    * 
    * @param vReturn
+   * @param crosslinkHBond 
+   * @param crosslinkCovalent 
    * @return T/F
    */
-  public boolean getCrossLinkLead(Lst<Integer> vReturn) {
+  public boolean getCrossLinkVector(Lst<Integer> vReturn, boolean crosslinkCovalent, boolean crosslinkHBond) {
     return false;
   }
 

@@ -76,6 +76,8 @@ public class ActionManager implements EventManager {
    */
   public void setViewer(Viewer vwr, String commandOptions) {
     this.vwr = vwr;
+    if (!vwr.isJS)
+      createActions();
     setBinding(jmolBinding = new JmolBinding());
     LEFT_CLICKED = Binding.getMouseAction(1, Binding.LEFT, Event.CLICKED);
     LEFT_DRAGGED = Binding.getMouseAction(1, Binding.LEFT, Event.DRAGGED);
@@ -222,7 +224,9 @@ public class ActionManager implements EventManager {
     actionNames[i] = name;
   }
 
-  static {
+  void createActions() {
+    if (actionInfo[ACTION_assignNew] != null)
+      return;
     // OK for J2S because actionInfo and actionNames are both private
     newAction(ACTION_assignNew, "_assignNew", GT.o(GT._(
         "assign/new atom or bond (requires {0})"),
@@ -344,7 +348,6 @@ public class ActionManager implements EventManager {
             ._("spin model (swipe and release button and stop motion simultaneously)"));
     newAction(ACTION_translate, "_translate", GT._("translate"));
     newAction(ACTION_wheelZoom, "_wheelZoom", GT._("zoom"));
-
   }
 
   public static String getActionName(int i) {
@@ -847,8 +850,8 @@ public class ActionManager implements EventManager {
     if (vwr.tm.stereoDoubleDTI)
       x = x << 1;
     setCurrent(time, x, y, 0);
-    //if (isExit)
-      //exitMeasurementMode("mouseExit");
+    if (isExit)
+      exitMeasurementMode("mouseExit"); //otherwise pending measurement can be left over.
   }
 
   private int pressAction;
@@ -930,7 +933,6 @@ public class ActionManager implements EventManager {
       //if (false && apm != PICKING_ASSIGN_ATOM 
       //    && apm != ACTION_pickMeasure
       //    && apm != PICKING_MEASURE_DISTANCE)
-      //  exitMeasurementMode(null);
       dragGesture.add(dragAction, x, y, time);
       checkDragWheelAction(dragAction, x, y, deltaX, deltaY, time,
           Event.DRAGGED);
@@ -1168,7 +1170,7 @@ public class ActionManager implements EventManager {
       return;
     }
     if (checkMotionRotateZoom(dragWheelAction, x, deltaX, deltaY, true)) {
-      if (vwr.tm.slabEnabled && checkSlideZoom(dragWheelAction))
+      if (vwr.tm.slabEnabled && bnd(dragWheelAction,ACTION_slabAndDepth))
         vwr.slabDepthByPixels(deltaY);
       else
         vwr.zoomBy(deltaY);
@@ -1193,14 +1195,7 @@ public class ActionManager implements EventManager {
             Integer.MAX_VALUE);
       }
       return;
-    } else if (bnd(dragWheelAction, ACTION_wheelZoom)) {
-      zoomByFactor(deltaY, Integer.MAX_VALUE, Integer.MAX_VALUE);
-      return;
-    } else if (bnd(dragWheelAction, ACTION_rotateZ)) {
-      setMotion(GenericPlatform.CURSOR_MOVE, true);
-      vwr.rotateZBy(-deltaX, Integer.MAX_VALUE, Integer.MAX_VALUE);
-      return;
-    }
+    } 
     if (vwr.tm.slabEnabled) {
       if (bnd(dragWheelAction, ACTION_depth)) {
         vwr.depthByPixels(deltaY);
@@ -1214,6 +1209,15 @@ public class ActionManager implements EventManager {
         vwr.slabDepthByPixels(deltaY);
         return;
       }
+    }
+    if (bnd(dragWheelAction, ACTION_wheelZoom)) {
+      zoomByFactor(deltaY, Integer.MAX_VALUE, Integer.MAX_VALUE);
+      return;
+    } 
+    if (bnd(dragWheelAction, ACTION_rotateZ)) {
+      setMotion(GenericPlatform.CURSOR_MOVE, true);
+      vwr.rotateZBy(-deltaX, Integer.MAX_VALUE, Integer.MAX_VALUE);
+      return;
     }
   }
 
@@ -1504,7 +1508,7 @@ public class ActionManager implements EventManager {
    */
   private boolean checkMotionRotateZoom(int mouseAction, int x, int deltaX,
                                         int deltaY, boolean isDrag) {
-    boolean isSlideZoom = checkSlideZoom(mouseAction);
+    boolean isSlideZoom = bnd(mouseAction, ACTION_slideZoom) && isZoomArea(pressed.x);
     boolean isRotateXY = bnd(mouseAction, ACTION_rotate);
     boolean isRotateZorZoom = bnd(mouseAction, ACTION_rotateZorZoom);
     if (!isSlideZoom && !isRotateXY && !isRotateZorZoom)
@@ -1570,10 +1574,6 @@ public class ActionManager implements EventManager {
   protected float getDegrees(float delta, boolean isX) {
     return delta / Math.min(500, isX ? vwr.getScreenWidth() 
         : vwr.getScreenHeight()) * 180 * mouseDragFactor;
-  }
-
-  private boolean checkSlideZoom(int action) {
-    return bnd(action, ACTION_slideZoom) && isZoomArea(pressed.x);
   }
 
   private boolean isZoomArea(int x) {
@@ -1645,7 +1645,7 @@ public class ActionManager implements EventManager {
     measurementQueued = getMP();
   }
 
-  private void exitMeasurementMode(String refreshWhy) {
+  void exitMeasurementMode(String refreshWhy) {
     if (mp == null)
       return;
     vwr.setPendingMeasurement(mp = null);
@@ -2014,7 +2014,7 @@ public class ActionManager implements EventManager {
     if (isSpin)
       runScript("spin" + s + " " + vwr.getInt(T.pickingspinrate));
     else
-      runScript("draw symop" + s + ";show symop" + s);
+      runScript("draw symop " + s + ";show symop " + s);
   }
 
   private void reset() {
