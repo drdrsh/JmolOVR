@@ -23,6 +23,7 @@
  */
 package org.jmol.viewer;
 
+import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -90,6 +91,7 @@ import org.jmol.atomdata.AtomData;
 import org.jmol.atomdata.AtomDataServer;
 import org.jmol.atomdata.RadiusData;
 import org.jmol.atomdata.RadiusData.EnumType;
+import org.jmol.awt.Mouse;
 import org.jmol.c.FIL;
 import org.jmol.c.STER;
 import org.jmol.c.STR;
@@ -3608,6 +3610,7 @@ public class Viewer extends JmolViewer implements AtomDataServer,
       render();
       gdata.endRendering();
       image = gdata.getScreenImage(isImageWrite);
+      org.jmol.awt.Mouse.LoadTex((BufferedImage)image);
     } catch (Error er) {
       gdata.getScreenImage(isImageWrite);
       handleError(er, false);

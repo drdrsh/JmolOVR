@@ -39,7 +39,7 @@ public class Jmol extends JmolPanel {
       int startupHeight, Map<String, Object> vwrOptions, Point loc) {super(jmolApp, splash, frame, parent, startupWidth, startupHeight, vwrOptions, loc);
     //Assumes oculus is in extended desktop mode and is disignated as the second screen (i.e index 1)
     if(vwrOptions.get("oculusVRMode") != null){
-      frame.setAlwaysOnTop( true );
+      //frame.setAlwaysOnTop( true );
       //showOnScreen(1, frame);
     }
   }

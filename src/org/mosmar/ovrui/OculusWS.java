@@ -19,8 +19,10 @@ import javajs.util.Quat;
 
 import org.jmol.viewer.TransformManager;
 import org.jmol.viewer.Viewer;
+import org.lwjgl.opengl.GL11;
 
 import javax.swing.*;
+import javax.swing.tree.ExpandVetoException;
 
 /**
  * WebSocket server that provides tracking info Dependencies are: JOVR, GSON and
@@ -142,7 +144,7 @@ public class OculusWS {
     private SensorData latestData = new SensorData(0, 0, 0, 0, 0, 0, 0, 0);
     private boolean run = true;
     private TransformManager mTM;
-    private Viewer mViewer;
+    public Viewer mViewer;
 
     public M3 getOrientation(){
         return mOrientation;
@@ -173,12 +175,18 @@ public class OculusWS {
                 }
 
                 Hmd hmd = Hmd.create(0);
-
+                try {
+                    GL11.glEnable(GL11.GL_TEXTURE);
+                }catch(Exception e){
+                    System.out.print("");
+                }
+                /*
                 if (hmd == null) {
                     org.jmol.util.Logger.error(
                             "Unable to initialize oculus, verify that the HMD is connected and the service is up");
                     throw new IllegalStateException("Unable to initialize HMD");
                 }
+                */
 
                 hmd.configureTracking(ovrTrackingCap_Orientation
                         | ovrTrackingCap_MagYawCorrection
